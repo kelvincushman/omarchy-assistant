@@ -354,14 +354,16 @@ function accept(p: Proposal, calendar: boolean): void {
 }
 async function addToCalendar(p: Proposal): Promise<void> {
   const r = await run("claude", [
-    "-p", "--no-session-persistence", "--output-format", "json", "--model", config.minerModel, "--max-budget-usd", "0.05",
+    // Every claude.ai connector schema rides along (--tools does not filter MCP tools),
+    // so one turn costs ~2c on Haiku and a tool call needs two: budget accordingly.
+    "-p", "--no-session-persistence", "--output-format", "json", "--model", config.minerModel, "--max-budget-usd", "0.15",
     "--tools", "", "--allowedTools", "mcp__claude_ai_Google_Calendar__create_event", "--setting-sources", "",
     "--system-prompt", "You create exactly one Google Calendar event with the create_event tool, then reply with one line: the event title and start time, or the error.",
     "--", `Create this event on my primary calendar. Title: ${p.text}. When: ${p.when} (local time). Default duration 1 hour if no end is given.`,
   ], { cwd: path.join(RUN_DIR, "brain"), timeoutMs: 120_000 });
   const parsed = parseClaudeJson(r.stdout);
   addCost(parsed.costUsd);
-  log("calendar_done", { id: p.id, ok: parsed.ok, text: oneLine(parsed.text, 200) });
+  log("calendar_done", { id: p.id, ok: parsed.ok, text: oneLine(parsed.text, 200), ...(parsed.ok ? {} : { code: r.code, stdout: oneLine(r.stdout, 800), stderr: oneLine(r.stderr, 400) }) });
   notify(parsed.ok ? "Calendar" : "Calendar failed", parsed.text || "no response", { glyph: "󰃭", urgency: parsed.ok ? "low" : "normal" });
 }
 function nudge(p: Proposal): string {
@@ -460,7 +462,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse, local
     if (!listening()) return send(res, 202, { ok: true, muted: true });
     overheard("laptop", v.text); return send(res, 202, { ok: true });
   }
-  const pm = local ? p.match(/^\/local\/proposal\/([^/]+)\/(accept|accept-calendar|dismiss|snooze|nudge)$/) : null;
+  const pm = local ? p.match(/^\/local\/proposal\/([^/]+)\/(accept|accept-calendar|dismiss|snooze|nudge|calendar)$/) : null;
   if (pm && m === "POST") {
     const prop = loadProposal(pm[1]);
     if (!prop) return send(res, 404, { error: "no such proposal" });
@@ -468,6 +470,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse, local
     else if (pm[2] === "dismiss") { prop.status = "dismissed"; saveProposal(prop); }
     else if (pm[2] === "snooze") snooze(prop);
     else if (pm[2] === "nudge") return send(res, 200, { result: nudge(prop) });
+    else if (pm[2] === "calendar") { if (!prop.when) return send(res, 400, { error: "proposal has no date" }); void addToCalendar(prop); }
     refreshBar();
     return send(res, 200, { ok: true, status: prop.status });
   }
