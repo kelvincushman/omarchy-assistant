@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # omarchy:summary=Talk to the Omarchy voice assistant daemon
-# omarchy:args=ask <text> | note <text> | overheard <text> | ptt start [note]|stop | intake | review | accept|accept-calendar|dismiss|snooze|nudge|calendar <id> | digest | mine-now | recall <words> [--days N] | approve <what> | browser attach [site]|detach|status | pair <device-id> [label] | listen [on|off|toggle] | listening | status [--json] | open-chat [chat-id]
+# omarchy:args=ask <text> | note <text> | overheard <text> | ptt start [note]|stop | intake | review | accept|accept-calendar|dismiss|snooze|nudge|calendar <id> | digest | mine-now | recall <words> [--days N] | calendar-add <title> <when> | approve <what> | browser attach [site]|detach|status | pair <device-id> [label] | listen [on|off|toggle] | listening | status [--json] | open-chat [chat-id]
 # omarchy:examples=omarchy-assistant ask "remind me in 10 minutes to stretch" | omarchy-assistant pair phone | omarchy-assistant status
 
 set -euo pipefail
@@ -137,6 +137,16 @@ accept | accept-calendar | dismiss | snooze | nudge | calendar)
   ;;
 
 digest) need_daemon; api POST /local/digest; echo ;;
+
+calendar-add)
+  # calendar-add "<title>" "<YYYY-MM-DDTHH:MM or YYYY-MM-DD>": Google Calendar event
+  # (via the daemon's calendar step), an Inbox task, and nudges.
+  need_daemon
+  title=${1:?usage: omarchy-assistant calendar-add "<title>" "<YYYY-MM-DDTHH:MM>"}; when=${2:?when required}
+  api POST /local/calendar "$(jq -cn --arg t "$title" --arg w "$when" '{text:$t, when:$w}')"
+  echo
+  ;;
+
 
 recall)
   # Search the Obsidian vault: conversations, notes, overheard lines, tasks,

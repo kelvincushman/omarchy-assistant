@@ -447,6 +447,17 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse, local
   if (local && p === "/local/digest" && m === "POST") return send(res, 200, { due: digest(true) });
   if (local && p === "/local/mine" && m === "POST") return send(res, 200, { proposals: await mine(true) });
   if (local && p.startsWith("/local/chat/") && m === "GET") return send(res, 200, { turns: chatLines(decodeURIComponent(p.slice(12))).slice(-20) });
+  if (local && p === "/local/calendar" && m === "POST") {
+    // Explicit request from the brain or CLI: no proposal step, it is the user's own ask.
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const text = oneLine(String(body.text ?? ""), 140);
+    const when = typeof body.when === "string" && /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?/.test(body.when) ? body.when.slice(0, 16) : null;
+    if (!text || !when) return send(res, 400, { error: "need text and when (YYYY-MM-DD or YYYY-MM-DDTHH:MM)" });
+    const prop: Proposal = { id: newProposalId(), status: "pending", kind: when.length >= 16 ? "event" : "task", text, when, quote: "explicit request", source: "ask", created: new Date().toISOString() };
+    saveProposal(prop);
+    accept(prop, true);
+    return send(res, 202, { ok: true, id: prop.id, text, when });
+  }
   if (local && p === "/local/pair" && m === "POST") {
     const body = JSON.parse((await readBody(req)) || "{}");
     const devId = String(body.devId ?? "");
