@@ -33,6 +33,7 @@ chmod +x "$HERE/bin/omarchy-assistant"
 EOF
 mkdir -p "$VAULT"/{Conversations,Overheard,Notes,Proposals,Tasks}
 [[ -f $VAULT/Tasks/Inbox.md ]] || printf '# Inbox\n\n' >"$VAULT/Tasks/Inbox.md"
+[[ -f $VAULT/Memory/about-me.md ]] || { mkdir -p "$VAULT/Memory"; printf -- '---\ntags: [omarchy, memory]\n---\n# About me\n\nFacts the assistant should always know (first 800 characters are sent with every request).\n\n- Name:\n- Regular places:\n- People:\n- Preferences:\n' >"$VAULT/Memory/about-me.md"; }
 
 cp "$HERE/systemd/omarchy-assistant.service" "$HOME/.config/systemd/user/omarchy-assistant.service"
 systemctl --user daemon-reload

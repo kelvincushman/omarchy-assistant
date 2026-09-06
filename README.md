@@ -97,6 +97,21 @@ Replies must say what was verified and how; screenshots land in the vault next t
 | `quietHours` | `[22, 8]` | No mining, no nudges; deferred to the digest |
 | `digestAt` | `08:30` | Daily "today" notification |
 
+## Memory is the vault
+
+The brain has no hidden memory store. Obsidian is the memory:
+
+- **Recall**: when a request refers to the past, a person, a place or a plan, the brain runs
+  `omarchy-assistant recall <words> [--days N]`, a capped ripgrep over the vault, newest files first,
+  and quotes what it found with the date. It searches only when asked something that needs it.
+- **Standing facts**: `Memory/about-me.md` is a note you edit in Obsidian. Its first 800 characters
+  ride along with every request. The brain never writes to it; it asks you to add things.
+- **Links**: suggestions link back to the day they were overheard, so a proposal, the ambient line,
+  the accepted task and the conversation are one click apart in Obsidian's graph.
+
+A compiled layer such as [Dossier](https://github.com/kelvincushman/HMLR-Wiki) can be added later
+by ingesting the same folders; nothing here needs to change for that.
+
 ## Vault layout
 
 ```
@@ -105,6 +120,7 @@ Overheard/YYYY-MM-DD.md                ambient lines, append-only
 Notes/YYYY-MM-DD.md                    dictated notes
 Proposals/<id>.md                      one file per suggestion, status in frontmatter
 Tasks/Inbox.md                         accepted tasks as `- [ ] text 📅 YYYY-MM-DD`
+Memory/about-me.md                     standing facts you maintain; injected into every request
 ```
 
 Files are only ever appended or atomically created. Nothing is deleted.

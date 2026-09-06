@@ -223,12 +223,18 @@ async function drain(): Promise<void> {
   }
 }
 
+function aboutMe(): string {
+  try { return fs.readFileSync(path.join(config.vault, "Memory", "about-me.md"), "utf8").replace(/^---[\s\S]*?---\n/, "").trim().slice(0, 800); } catch { return ""; }
+}
+
 async function userTurn(job: Job): Promise<string> {
   const win = await run("sh", ["-c", "hyprctl activewindow -j 2>/dev/null | jq -r '.title // empty'"], { timeoutMs: 2000 });
+  const me = aboutMe();
   const recent = chatLines(job.chatId).slice(-7, -1).map((l) => `${l.role === "user" ? "You" : "Omarchy"}: ${oneLine(l.text, 300)}`);
   return [
     `Now: ${new Date().toString().slice(0, 24)}. Source: ${job.device}. Vault: ${config.vault}. Budget: $${config.budgetUsd.toFixed(2)}.`,
     win.stdout.trim() ? `Active window: ${oneLine(win.stdout, 80)}` : "",
+    me ? `About the user (from the vault, Memory/about-me.md):\n${me}` : "",
     recent.length ? `Recent turns:\n${recent.join("\n")}` : "",
     `Request: ${job.text}`,
   ].filter(Boolean).join("\n\n");
@@ -317,7 +323,7 @@ function propose(items: MinedProposal[], source: string): void {
   const created: Proposal[] = [];
   for (const m of items) {
     const p: Proposal = { id: newProposalId(), status: "pending", kind: m.kind, text: m.text, when: m.when, quote: m.quote, source, created: new Date().toISOString() };
-    writeAtomic(path.join(V.proposals, `${p.id}.md`), renderProposal(p));
+    writeAtomic(path.join(V.proposals, `${p.id}.md`), renderProposal(p) + `Heard in [[Overheard/${ymd()}]].\n`);
     created.push(p);
   }
   const first = created[0];
