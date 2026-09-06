@@ -61,6 +61,27 @@ Requirements: Omarchy 4.x, `node` 22+ (ships with the `claude` CLI via mise), `c
 | Pair the phone app | `omarchy-assistant pair phone` (prints the token once) |
 | Status | `omarchy-assistant status` |
 
+## Browser and desktop control
+
+For anything involving a website or the screen, the brain reads `brain/COMPUTER.md` first.
+It follows a sense, act, verify loop lifted from
+[this write-up](https://www.kelvinlee.io/blog/agent-browser-cli-cdp-sense-act-verify):
+
+- **Isolated browser by default** via the [`agent-browser`](https://github.com/vercel-labs/agent-browser)
+  CLI (`npm i -g agent-browser`): `snapshot` to see, `click @ref` to act, `snapshot` or `get`
+  again to verify. Observations may be retried; state-changing actions are never replayed blind.
+- **Attached mode** drives your own logged-in Chromium over CDP, only on explicit request and
+  only after `omarchy-assistant browser attach` gets a click on the laptop. The brain works in
+  one pinned tab and never closes your browser.
+- **Approval gate**: login, payment, sending, and deleting call `omarchy-assistant approve "<what>"`,
+  which shows a menu on the laptop and denies after 60 seconds unattended.
+- **Desktop**: `grim` screenshots the brain can read as images, `omarchy capture text` for OCR,
+  `hyprctl dispatch` and `wtype` to act, another screenshot to verify. Nothing to install.
+- **Escape hatch**: long multi-page jobs can be delegated once to
+  `ORPHUS_ENABLE_BROWSER=1 orphus -p "..."`.
+
+Replies must say what was verified and how; screenshots land in the vault next to the conversation.
+
 ## Config
 
 `~/.config/omarchy/assistant/config.json`

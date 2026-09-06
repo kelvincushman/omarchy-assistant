@@ -39,7 +39,7 @@ const DEFAULTS: Config = {
   vault: path.join(HOME, "Documents", "Omarchy"),
   port: 7477, bind: "0.0.0.0", brain: "claude",
   model: "claude-fable-5-1", minerModel: "claude-haiku-4-5",
-  budgetUsd: 0.10, quietHours: [22, 8],
+  budgetUsd: 0.30, quietHours: [22, 8],
   minerEveryMin: 20, minerBatch: 8, digestAt: "08:30",
 };
 
@@ -227,7 +227,7 @@ async function userTurn(job: Job): Promise<string> {
   const win = await run("sh", ["-c", "hyprctl activewindow -j 2>/dev/null | jq -r '.title // empty'"], { timeoutMs: 2000 });
   const recent = chatLines(job.chatId).slice(-7, -1).map((l) => `${l.role === "user" ? "You" : "Omarchy"}: ${oneLine(l.text, 300)}`);
   return [
-    `Now: ${new Date().toString().slice(0, 24)}. Source: ${job.device}.`,
+    `Now: ${new Date().toString().slice(0, 24)}. Source: ${job.device}. Vault: ${config.vault}. Budget: $${config.budgetUsd.toFixed(2)}.`,
     win.stdout.trim() ? `Active window: ${oneLine(win.stdout, 80)}` : "",
     recent.length ? `Recent turns:\n${recent.join("\n")}` : "",
     `Request: ${job.text}`,
