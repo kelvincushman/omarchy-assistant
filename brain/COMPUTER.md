@@ -55,9 +55,14 @@ against the attached browser**: it is the user's real session.
 - Sense: `grim /tmp/screen.png` then `Read /tmp/screen.png` (you can see images), or
   `omarchy capture text` for OCR of the visible screen. `hyprctl activewindow -j` for the
   focused window; `hyprctl clients -j | jq '.[] | {class,title,workspace}'` for all windows.
-- Act: `hyprctl dispatch focuswindow class:<class>`, `hyprctl dispatch workspace <n>`,
-  `omarchy launch …` to open apps, `wtype "text"` to type into the focused window,
-  `wtype -k Return` for keys, `wl-copy`/`wl-paste` for the clipboard.
+- Act: Omarchy's `hyprctl dispatch` takes a Lua dispatcher, not a string:
+  `hyprctl dispatch 'hl.dsp.focus({ window = "address:0x…" })'` (address from `hyprctl clients -j`),
+  `hyprctl dispatch 'hl.dsp.focus({ window = "class:md.obsidian.Obsidian" })'`,
+  `hyprctl dispatch 'hl.dsp.focus({ workspace = "3" })'`. Window classes are exact and often
+  namespaced (Obsidian is `md.obsidian.Obsidian`, not `obsidian`). `omarchy launch …` opens apps,
+  `xdg-open <uri>` hands a file or `obsidian://open?path=<url-encoded>` to its app, `wtype "text"`
+  types into the focused window, `wtype -k Return` sends keys, `wl-copy`/`wl-paste` for the clipboard.
+- Prefer the least powerful route: writing a file into the vault and opening it beats typing it.
 - Verify: take another screenshot or OCR pass and check the state changed as intended.
 - Typing into a window the user may be using is a state change: focus the right window
   first, and never type secrets.
