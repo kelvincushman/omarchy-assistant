@@ -20,14 +20,14 @@ Panel {
   readonly property color dim: Qt.darker(foreground, 1.55)
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
-  readonly property string glyph: !assistant.available ? "󰚩"
+  // Microphone, not a robot: omarchy.agents already uses the robot glyph.
+  readonly property string glyph: !assistant.available ? "󰍭"
     : assistant.thinking ? "󰔟"
     : !assistant.listening ? "󰍭"
-    : "󰚩"
+    : "󰍬"
   readonly property string stateText: !assistant.available ? "Daemon not running"
     : assistant.thinking ? "Thinking…"
     : assistant.listening ? "Listening" : "Muted"
-  readonly property string barText: assistant.pending > 0 ? glyph + " " + assistant.pending : glyph
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -61,23 +61,10 @@ Panel {
     id: button
     anchors.fill: parent
     bar: root.bar
-    iconComponent: Component {
-      Item {
-        implicitWidth: label.implicitWidth
-        implicitHeight: label.implicitHeight
-        Text {
-          id: label
-          anchors.centerIn: parent
-          text: root.barText
-          textFormat: Text.PlainText
-          color: !assistant.available ? Qt.darker(root.barForeground, 1.55)
-            : assistant.pending > 0 ? root.urgent
-            : assistant.listening ? root.barForeground : Qt.darker(root.barForeground, 1.55)
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-        }
-      }
-    }
+    text: root.glyph
+    active: assistant.pending > 0
+    dimmed: !assistant.available || !assistant.listening
+    tooltipText: assistant.pending > 0 ? assistant.pending + " suggestion" + (assistant.pending === 1 ? "" : "s") + " waiting" : root.stateText
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.RightButton) assistant.toggleListening()
       else if (buttonCode === Qt.MiddleButton) assistant.review()
