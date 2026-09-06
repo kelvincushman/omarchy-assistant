@@ -53,8 +53,8 @@ Requirements: Omarchy 4.x, `node` 22+ (ships with the `claude` CLI via mise), `c
 
 | Action | How |
 |---|---|
-| Ask for something | hold `SUPER+ALT+O`, speak, release |
-| Dictate a note | hold `SUPER+ALT+N`, speak, release |
+| Ask for something | hold `SUPER+ALT+O`, speak, release. Or tap once to start and tap again to send. |
+| Dictate a note | hold `SUPER+ALT+N`, speak, release, or tap to start and tap to send |
 | Same from a terminal | `omarchy-assistant ask "remind me in 10 minutes to stretch"` |
 | Review suggestions | click the notification, or `omarchy-assistant review`, or the bar widget |
 | Mute ambient listening | right-click the bar widget, or `omarchy-assistant listen off` |

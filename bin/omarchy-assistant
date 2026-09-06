@@ -40,19 +40,35 @@ ask | note | overheard)
   ;;
 
 ptt)
-  # Hold-to-talk. `start` arms the next voxtype transcript for the daemon and
-  # starts recording; `stop` ends recording. voxtype's post_process hook runs
-  # `omarchy-assistant intake`, which consumes the armed marker.
+  # Hold-to-talk with a tap fallback. `start` arms the next voxtype transcript
+  # for the daemon and starts recording; `stop` ends it. A release that lands
+  # within 400 ms of the press is treated as a tap: recording keeps going and
+  # the next press sends it. voxtype's own bar indicator shows the state.
   mkdir -p "$RUN_DIR"
+  stamp="$RUN_DIR/ptt-started"
+  state=$(cat "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/voxtype/state" 2>/dev/null || echo idle)
   case ${1:-} in
   start)
+    if [[ $state == recording ]]; then
+      rm -f "$stamp"
+      voxtype record stop
+      exit 0
+    fi
     mode=${2:-ask}
     rm -f "$RUN_DIR"/armed-*
     touch "$RUN_DIR/armed-$mode"
-    omarchy-osd -i 󰍬 -m "$([[ $mode == note ]] && echo 'Note…' || echo 'Listening…')" -d 1500 >/dev/null 2>&1 || true
+    date +%s%3N >"$stamp"
     voxtype record start
     ;;
-  stop) voxtype record stop ;;
+  stop)
+    now=$(date +%s%3N)
+    started=$(cat "$stamp" 2>/dev/null || echo 0)
+    if ((now - started < 400)); then
+      exit 0
+    fi
+    rm -f "$stamp"
+    voxtype record stop
+    ;;
   *) echo "usage: omarchy-assistant ptt start [note]|stop" >&2; exit 1 ;;
   esac
   ;;
