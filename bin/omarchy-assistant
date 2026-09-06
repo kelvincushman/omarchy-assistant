@@ -40,43 +40,57 @@ ask | note | overheard)
   ;;
 
 ptt)
-  # Hold-to-talk with a tap fallback. `start` arms the next voxtype transcript
-  # for the daemon and starts recording; `stop` ends it. A release that lands
-  # within 400 ms of the press is treated as a tap: recording keeps going and
-  # the next press sends it. voxtype's own bar indicator shows the state.
+  # Hold-to-talk with a tap fallback, independent of voxtype's daemon so the
+  # transcript is never typed into the focused window. Audio goes to a wav in
+  # the runtime dir, `voxtype transcribe` turns it into text, the daemon gets
+  # the text. One notification morphs Listening → Thinking → reply.
   mkdir -p "$RUN_DIR"
-  stamp="$RUN_DIR/ptt-started"
-  state=$(cat "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/voxtype/state" 2>/dev/null || echo idle)
+  wav="$RUN_DIR/ptt.wav" pidf="$RUN_DIR/ptt.pid" stamp="$RUN_DIR/ptt-started" modef="$RUN_DIR/ptt.mode" nidf="$RUN_DIR/ptt.nid"
+  recording() { [[ -f $pidf ]] && kill -0 "$(cat "$pidf")" 2>/dev/null; }
+  toast() { omarchy-notification-send -r "$(cat "$nidf" 2>/dev/null || echo 0)" -u low --app-name Omarchy "$@" >/dev/null 2>&1 || true; }
+  finish() {
+    recording || return 0
+    kill -INT "$(cat "$pidf")" 2>/dev/null || true
+    sleep 0.3
+    rm -f "$pidf" "$stamp"
+    local mode nid text
+    mode=$(cat "$modef" 2>/dev/null || echo ask)
+    nid=$(cat "$nidf" 2>/dev/null || echo 0)
+    toast -g 󰔟 "Thinking…" "transcribing"
+    text=$(voxtype transcribe "$wav" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | awk 'body {print} /^$/ {body=1}' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '\n' ' ')
+    rm -f "$wav"
+    if [[ -z ${text// /} ]]; then
+      toast -t 3000 -g 󰍭 "Omarchy" "Didn't catch that"
+      return 0
+    fi
+    api POST /local/text "$(jq -cn --arg t "$text" --arg m "$mode" --argjson n "$nid" '{text:$t, mode:$m, notifyId:$n}')" >/dev/null \
+      || toast -t 4000 -g 󰅖 "Omarchy" "Daemon not running"
+  }
   case ${1:-} in
   start)
-    if [[ $state == recording ]]; then
-      rm -f "$stamp"
-      voxtype record stop
-      exit 0
-    fi
+    if recording; then finish; exit 0; fi
     mode=${2:-ask}
-    rm -f "$RUN_DIR"/armed-*
-    touch "$RUN_DIR/armed-$mode"
+    echo "$mode" >"$modef"
     date +%s%3N >"$stamp"
-    voxtype record start
+    rm -f "$wav"
+    pw-record --rate 16000 --channels 1 --format s16 "$wav" >/dev/null 2>&1 &
+    echo $! >"$pidf"
+    omarchy-notification-send -p -g 󰍬 -u low --app-name Omarchy "$([[ $mode == note ]] && echo 'Note…' || echo 'Listening…')" "release, or tap again to send" >"$nidf" 2>/dev/null || echo 0 >"$nidf"
     ;;
   stop)
     now=$(date +%s%3N)
     started=$(cat "$stamp" 2>/dev/null || echo 0)
-    if ((now - started < 400)); then
-      exit 0
-    fi
-    rm -f "$stamp"
-    voxtype record stop
+    ((now - started < 400)) && exit 0
+    finish
     ;;
   *) echo "usage: omarchy-assistant ptt start [note]|stop" >&2; exit 1 ;;
   esac
   ;;
 
 intake)
-  # voxtype [output.post_process] hook: stdin is the transcript, stdout is
-  # what voxtype types. Armed → swallow it and hand it to the daemon; not
-  # armed → pass through unchanged so ordinary dictation still works.
+  # Kept for anyone who prefers voxtype's post_process hook. Beware: when the
+  # hook returns nothing voxtype types the original text, so the default
+  # install no longer uses this path.
   text=$(cat)
   armed=$(ls "$RUN_DIR"/armed-* 2>/dev/null | head -n1 || true)
   if [[ -z $armed ]]; then
@@ -85,8 +99,8 @@ intake)
   fi
   mode=${armed##*/armed-}
   rm -f "$armed"
-  [[ -z ${text// /} ]] && exit 0
-  api POST /local/text "$(json_text "$text" "$mode")" >/dev/null || printf '%s' "$text"
+  [[ -n ${text// /} ]] && api POST /local/text "$(json_text "$text" "$mode")" >/dev/null || true
+  printf '%s' "$text"
   ;;
 
 review)

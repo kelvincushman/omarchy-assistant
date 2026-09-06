@@ -50,11 +50,8 @@ Done. Now add these yourself (they live in files you own):
    o.bind("SUPER + ALT + N", "Note to Omarchy (hold)", "omarchy-assistant ptt start note")
    o.bind("SUPER + ALT + N", "Note to Omarchy (release)", "omarchy-assistant ptt stop", { release = true })
 
-2. ~/.config/voxtype/config.toml  (uncomment/replace the post_process block)
-   [output.post_process]
-   command = "omarchy-assistant intake"
-   timeout_ms = 5000
-   then: systemctl --user restart voxtype
+2. voxtype: nothing to change. The hotkeys record with pw-record and call
+   `voxtype transcribe`, so F9 dictation and the assistant never interfere.
 
 3. ~/.config/omarchy/extensions/omarchy-menu.jsonc  (inside the outer braces)
    "assistant": {"icon":"󰚩","label":"Assistant","aliases":["assistant","omarchy assistant"]},

@@ -137,8 +137,9 @@ function run(cmd: string, args: string[], opts: { cwd?: string; input?: string; 
     if (opts.input !== undefined) child.stdin?.end(opts.input);
   });
 }
-function notify(title: string, body: string, opts: { glyph?: string; urgency?: "low" | "normal" | "critical"; exec?: string[] } = {}): void {
+function notify(title: string, body: string, opts: { glyph?: string; urgency?: "low" | "normal" | "critical"; exec?: string[]; replaceId?: number } = {}): void {
   const args = ["-g", opts.glyph ?? "󰚩", "-u", opts.urgency ?? "normal", "--app-name", "Omarchy", oneLine(title, 80), oneLine(body, 400)];
+  if (opts.replaceId && Number.isInteger(opts.replaceId) && opts.replaceId > 0) args.push("-r", String(opts.replaceId));
   if (opts.exec?.length) args.push("--exec", ...opts.exec);
   run("omarchy-notification-send", args).then((r) => { if (r.code !== 0) log("notify_failed", { stderr: r.stderr.trim() }); });
 }
@@ -181,7 +182,7 @@ function statusJson() {
 // Brain: explicit requests only. One at a time.
 // ---------------------------------------------------------------------------
 
-interface Job { chatId: string; device: string; text: string; devId?: string; }
+interface Job { chatId: string; device: string; text: string; devId?: string; notifyId?: number; }
 const jobs: Job[] = [];
 let brainBusy = false;
 
@@ -209,7 +210,7 @@ async function drain(): Promise<void> {
     pushSse(job.chatId, id, { type: "assistant_message", taskId: `${job.chatId}#${id}`, text, ts: Date.now() });
     if (!result.ok) pushSse(job.chatId, id, { type: "error", message: text, ts: Date.now() });
     status.lastReply = text; status.lastReplyAt = Date.now();
-    notify("Omarchy", text, { urgency: result.ok ? "normal" : "critical", exec: ["omarchy-assistant", "open-chat", job.chatId] });
+    notify("Omarchy", text, { urgency: result.ok ? "normal" : "critical", exec: ["omarchy-assistant", "open-chat", job.chatId], replaceId: job.notifyId });
     if (job.devId) enqueueAlert(job.devId, pickAlert({ ok: result.ok, output: text }));
     log("brain_done", { chatId: job.chatId, ok: result.ok, costUsd: result.costUsd, chars: text.length });
   } catch (e) {
@@ -270,9 +271,9 @@ function overheard(source: string, text: string): void {
     status.minerQueued++;
   }
 }
-function note(source: string, text: string): void {
+function note(source: string, text: string, notifyId?: number): void {
   appendLine(path.join(V.notes, `${ymd()}.md`), `- ${hhmm()} ${oneLine(text, 4000)}`);
-  notify("Noted", text, { glyph: "󰎞", urgency: "low" });
+  notify("Noted", text, { glyph: "󰎞", urgency: "low", replaceId: notifyId });
 }
 
 function queuedSegments(): { source: string; text: string; at: number }[] {
@@ -453,8 +454,9 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse, local
     const v = validateDeviceTextBody(body);
     if (typeof v === "string") return send(res, 400, { error: v });
     const mode = body.mode === "note" ? "note" : body.mode === "overheard" ? "overheard" : "ask";
-    if (mode === "ask") return send(res, 202, ask({ chatId: "local", device: "laptop", text: v.text }));
-    if (mode === "note") { note("laptop", v.text); return send(res, 202, { ok: true }); }
+    const notifyId = Number.isInteger(body.notifyId) && body.notifyId > 0 ? body.notifyId : undefined;
+    if (mode === "ask") { if (notifyId) notify("Thinking…", oneLine(v.text, 120), { glyph: "󰔟", urgency: "low", replaceId: notifyId }); return send(res, 202, ask({ chatId: "local", device: "laptop", text: v.text, notifyId })); }
+    if (mode === "note") { note("laptop", v.text, notifyId); return send(res, 202, { ok: true }); }
     if (!listening()) return send(res, 202, { ok: true, muted: true });
     overheard("laptop", v.text); return send(res, 202, { ok: true });
   }

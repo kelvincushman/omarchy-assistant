@@ -6,14 +6,14 @@ headless coding agent does it on your laptop using the `omarchy` CLI. Everything
 an Obsidian vault. Things you overhear yourself committing to ("I'll send Bob the quote on Tuesday")
 turn into suggestions that need one click before they become tasks, calendar events or gentle nudges.
 
-Built on what Omarchy already ships: `voxtype` for speech-to-text, `omarchy-notification-send`
+Built on what Omarchy already ships: `voxtype transcribe` and `pw-record` for speech-to-text, `omarchy-notification-send`
 for click-to-run notifications, `systemd-run` for scheduling, the Quickshell plugin API for the bar,
 and `claude -p` (or `codex exec`) as the brain. About 1,000 lines of glue, no dependencies.
 
 ## How it works
 
 ```
-hotkey / wearable button ──▶ voxtype or phone STT ──▶ daemon ──▶ claude -p ──▶ omarchy CLI
+hotkey / wearable button ──▶ voxtype transcribe / phone STT ──▶ daemon ──▶ claude -p ──▶ omarchy CLI
                                                        │              └──▶ reply: notification + phone chat
 ambient speech (text only) ────────────────────────────┤
                                                        ├──▶ ~/Documents/Omarchy  (Obsidian vault)
@@ -39,7 +39,7 @@ git clone https://github.com/kelvincushman/omarchy-assistant ~/Projects/omarchy-
 
 The installer links the plugin into `~/.config/omarchy/plugins/wearable.assistant`, writes
 `~/.config/omarchy/assistant/config.json`, creates the vault, and enables a user systemd unit.
-It then prints the snippets to add to `bindings.lua`, `voxtype/config.toml` and the menu extension.
+It then prints the snippets to add to `bindings.lua` and the menu extension.
 Enable the bar widget with:
 
 ```bash
