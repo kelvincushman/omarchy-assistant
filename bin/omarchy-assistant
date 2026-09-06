@@ -47,11 +47,19 @@ ptt)
   mkdir -p "$RUN_DIR"
   wav="$RUN_DIR/ptt.wav" pidf="$RUN_DIR/ptt.pid" stamp="$RUN_DIR/ptt-started" modef="$RUN_DIR/ptt.mode" nidf="$RUN_DIR/ptt.nid"
   recording() { [[ -f $pidf ]] && kill -0 "$(cat "$pidf")" 2>/dev/null; }
+  # The wav lives on the runtime tmpfs. An unbounded recorder once filled it
+  # (793 MB) and every systemd transient unit on the machine failed, so the
+  # recorder is hard-capped and finish() also reaps any stray one by pattern.
+  MAX_RECORD_SEC=90
   toast() { omarchy-notification-send -r "$(cat "$nidf" 2>/dev/null || echo 0)" -u low --app-name Omarchy "$@" >/dev/null 2>&1 || true; }
   finish() {
-    recording || return 0
+    if ! recording; then
+      pkill -INT -f "pw-record .*$wav" 2>/dev/null || true
+      return 0
+    fi
     kill -INT "$(cat "$pidf")" 2>/dev/null || true
     sleep 0.3
+    pkill -INT -f "pw-record .*$wav" 2>/dev/null || true
     rm -f "$pidf" "$stamp"
     local mode nid text
     mode=$(cat "$modef" 2>/dev/null || echo ask)
@@ -73,7 +81,8 @@ ptt)
     echo "$mode" >"$modef"
     date +%s%3N >"$stamp"
     rm -f "$wav"
-    pw-record --rate 16000 --channels 1 --format s16 "$wav" >/dev/null 2>&1 &
+    pkill -INT -f "pw-record .*$wav" 2>/dev/null || true
+    timeout -s INT "$MAX_RECORD_SEC" pw-record --rate 16000 --channels 1 --format s16 "$wav" >/dev/null 2>&1 &
     echo $! >"$pidf"
     omarchy-notification-send -p -g 󰍬 -u low --app-name Omarchy "$([[ $mode == note ]] && echo 'Note…' || echo 'Listening…')" "release, or tap again to send" >"$nidf" 2>/dev/null || echo 0 >"$nidf"
     ;;
