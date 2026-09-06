@@ -341,7 +341,7 @@ function scheduleNudge(unitSuffix: string, onCalendar: string, id: string): void
   run("systemd-run", ["--user", "--quiet", "--collect", `--on-calendar=${onCalendar}`, `--unit=omarchy-assistant-nudge-${id}-${unitSuffix}`, "omarchy-assistant", "nudge", id])
     .then((r) => { if (r.code !== 0) log("nudge_schedule_failed", { id, onCalendar, stderr: r.stderr.trim() }); });
 }
-function accept(p: Proposal, calendar: boolean): void {
+function accept(p: Proposal, calendar: boolean, dedupe = true): void {
   p.status = "accepted"; saveProposal(p);
   appendLine(V.inbox, taskLine(p.text, p.when));
   if (p.when) {
@@ -355,18 +355,20 @@ function accept(p: Proposal, calendar: boolean): void {
       scheduleNudge("day", `${day} 09:00:00`, p.id);
     }
   }
-  if (calendar && p.when) void addToCalendar(p);
+  if (calendar && p.when) void addToCalendar(p, dedupe);
   notify("Added", `${p.text}${p.when ? ` · ${p.when}` : ""}`, { glyph: "󰄬", urgency: "low", exec: ["xdg-open", `obsidian://open?path=${V.inbox}`] });
 }
-async function addToCalendar(p: Proposal): Promise<void> {
+async function addToCalendar(p: Proposal, dedupe = true): Promise<void> {
   // Every claude.ai connector schema rides along (--tools does not filter MCP
   // tools), so one turn costs ~2c on Haiku. A search + create + reply is three
   // turns. The search matters: a run that creates the event and then dies on
   // the final reply would otherwise be retried into a duplicate.
   const r = await run("claude", [
-    "-p", "--no-session-persistence", "--output-format", "json", "--model", config.minerModel, "--max-budget-usd", "0.25",
-    "--tools", "", "--allowedTools", "mcp__claude_ai_Google_Calendar__create_event,mcp__claude_ai_Google_Calendar__search_events", "--setting-sources", "",
-    "--system-prompt", "You manage exactly one Google Calendar event. First call search_events with the title. If an event with that title already starts at the requested time, do not create another. Otherwise call create_event once. Then reply with one line: 'created' or 'already exists', the title and the start time, or the error.",
+    "-p", "--no-session-persistence", "--output-format", "json", "--model", config.minerModel, "--max-budget-usd", "0.40",
+    "--tools", "", "--allowedTools", dedupe ? "mcp__claude_ai_Google_Calendar__create_event,mcp__claude_ai_Google_Calendar__search_events" : "mcp__claude_ai_Google_Calendar__create_event", "--setting-sources", "",
+    "--system-prompt", dedupe
+      ? "You manage exactly one Google Calendar event. First call search_events with the title. If an event with that title already starts at the requested time, do not create another. Otherwise call create_event once. Then reply with one line: 'created' or 'already exists', the title and the start time, or the error."
+      : "Call create_event exactly once for the event described, then reply with one line: 'created', the title and the start time, or the error. Never call it twice.",
     "--", `Title: ${p.text}. Start: ${p.when} (local time). Duration 1 hour unless an end is implied. Primary calendar.`,
   ], { cwd: path.join(RUN_DIR, "brain"), timeoutMs: 180_000 });
   const parsed = parseClaudeJson(r.stdout);
@@ -455,7 +457,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse, local
     if (!text || !when) return send(res, 400, { error: "need text and when (YYYY-MM-DD or YYYY-MM-DDTHH:MM)" });
     const prop: Proposal = { id: newProposalId(), status: "pending", kind: when.length >= 16 ? "event" : "task", text, when, quote: "explicit request", source: "ask", created: new Date().toISOString() };
     saveProposal(prop);
-    accept(prop, true);
+    accept(prop, true, false); // explicit ask: one create call, no search turn
     return send(res, 202, { ok: true, id: prop.id, text, when });
   }
   if (local && p === "/local/pair" && m === "POST") {

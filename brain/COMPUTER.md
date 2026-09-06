@@ -63,7 +63,10 @@ against the attached browser**: it is the user's real session.
   `xdg-open <uri>` hands a file or `obsidian://open?path=<url-encoded>` to its app, `wtype "text"`
   types into the focused window, `wtype -k Return` sends keys, `wl-copy`/`wl-paste` for the clipboard.
 - Prefer the least powerful route: writing a file into the vault and opening it beats typing it.
-- Verify: take another screenshot or OCR pass and check the state changed as intended.
+- Verify: take another screenshot or OCR pass and check the state changed as intended, then
+  check the artefact itself: a file on disk, a saved record, a title in `hyprctl clients -j`.
+  A screenshot of typed text is not proof it was saved. Obsidian, for example, commits a note
+  title only on Enter or when focus leaves the field; until then the file is still `Untitled.md`.
 - Typing into a window the user may be using is a state change: focus the right window
   first, and never type secrets.
 
