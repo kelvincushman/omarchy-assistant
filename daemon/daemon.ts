@@ -353,18 +353,20 @@ function accept(p: Proposal, calendar: boolean): void {
   notify("Added", `${p.text}${p.when ? ` · ${p.when}` : ""}`, { glyph: "󰄬", urgency: "low", exec: ["xdg-open", `obsidian://open?path=${V.inbox}`] });
 }
 async function addToCalendar(p: Proposal): Promise<void> {
+  // Every claude.ai connector schema rides along (--tools does not filter MCP
+  // tools), so one turn costs ~2c on Haiku. A search + create + reply is three
+  // turns. The search matters: a run that creates the event and then dies on
+  // the final reply would otherwise be retried into a duplicate.
   const r = await run("claude", [
-    // Every claude.ai connector schema rides along (--tools does not filter MCP tools),
-    // so one turn costs ~2c on Haiku and a tool call needs two: budget accordingly.
-    "-p", "--no-session-persistence", "--output-format", "json", "--model", config.minerModel, "--max-budget-usd", "0.15",
-    "--tools", "", "--allowedTools", "mcp__claude_ai_Google_Calendar__create_event", "--setting-sources", "",
-    "--system-prompt", "You create exactly one Google Calendar event with the create_event tool, then reply with one line: the event title and start time, or the error.",
-    "--", `Create this event on my primary calendar. Title: ${p.text}. When: ${p.when} (local time). Default duration 1 hour if no end is given.`,
-  ], { cwd: path.join(RUN_DIR, "brain"), timeoutMs: 120_000 });
+    "-p", "--no-session-persistence", "--output-format", "json", "--model", config.minerModel, "--max-budget-usd", "0.25",
+    "--tools", "", "--allowedTools", "mcp__claude_ai_Google_Calendar__create_event,mcp__claude_ai_Google_Calendar__search_events", "--setting-sources", "",
+    "--system-prompt", "You manage exactly one Google Calendar event. First call search_events with the title. If an event with that title already starts at the requested time, do not create another. Otherwise call create_event once. Then reply with one line: 'created' or 'already exists', the title and the start time, or the error.",
+    "--", `Title: ${p.text}. Start: ${p.when} (local time). Duration 1 hour unless an end is implied. Primary calendar.`,
+  ], { cwd: path.join(RUN_DIR, "brain"), timeoutMs: 180_000 });
   const parsed = parseClaudeJson(r.stdout);
   addCost(parsed.costUsd);
   log("calendar_done", { id: p.id, ok: parsed.ok, text: oneLine(parsed.text, 200), ...(parsed.ok ? {} : { code: r.code, stdout: oneLine(r.stdout, 800), stderr: oneLine(r.stderr, 400) }) });
-  notify(parsed.ok ? "Calendar" : "Calendar failed", parsed.text || "no response", { glyph: "󰃭", urgency: parsed.ok ? "low" : "normal" });
+  notify(parsed.ok ? "Calendar" : "Calendar unsure", parsed.ok ? (parsed.text || "done") : "The run failed after possibly creating the event. Check the calendar before retrying.", { glyph: "󰃭", urgency: parsed.ok ? "low" : "normal" });
 }
 function nudge(p: Proposal): string {
   if (p.status !== "accepted") return "not accepted";
