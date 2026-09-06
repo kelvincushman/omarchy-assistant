@@ -1,0 +1,15 @@
+[Unit]
+Description=Omarchy assistant daemon (voice requests, Obsidian sink, proposals, nudges)
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/bin/sh -c 'exec "$(command -v node)" "%h/.config/omarchy/plugins/wearable.assistant/daemon/daemon.ts"'
+Restart=on-failure
+RestartSec=5
+Environment=XDG_RUNTIME_DIR=%t
+Environment=PATH=%h/.local/share/mise/shims:%h/.local/bin:/usr/share/omarchy/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=graphical-session.target

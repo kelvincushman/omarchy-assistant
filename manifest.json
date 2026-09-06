@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "wearable.assistant",
+  "name": "Omarchy Assistant",
+  "version": "0.1.0",
+  "author": "wearable",
+  "license": "MIT",
+  "description": "Voice assistant status, pending suggestions and ambient-listening toggle in the Omarchy bar.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Omarchy Assistant",
+    "description": "Shows whether the assistant is listening or thinking, the last reply, and suggestions waiting for a yes or no.",
+    "category": "Productivity",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "refreshIntervalSec": 30
+    },
+    "schema": [
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 5,
+        "max": 600,
+        "step": 5,
+        "defaultValue": 30
+      }
+    ]
+  }
+}

@@ -1,0 +1,152 @@
+#!/bin/bash
+
+# omarchy:summary=Talk to the Omarchy voice assistant daemon
+# omarchy:args=ask <text> | note <text> | overheard <text> | ptt start [note]|stop | intake | review | accept|dismiss|snooze|nudge <id> | digest | mine-now | pair <device-id> [label] | listen [on|off|toggle] | listening | status [--json] | open-chat [chat-id]
+# omarchy:examples=omarchy-assistant ask "remind me in 10 minutes to stretch" | omarchy-assistant pair phone | omarchy-assistant status
+
+set -euo pipefail
+
+RUN_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/omarchy-assistant"
+SOCK="$RUN_DIR/sock"
+VAULT_DEFAULT="$HOME/Documents/Omarchy"
+
+api() { # method path [json]
+  local method=$1 path=$2 data=${3:-}
+  if [[ -n $data ]]; then
+    curl -sS --fail-with-body --unix-socket "$SOCK" -X "$method" -H 'Content-Type: application/json' --data "$data" "http://local$path"
+  else
+    curl -sS --fail-with-body --unix-socket "$SOCK" -X "$method" "http://local$path"
+  fi
+}
+
+json_text() { jq -cn --arg t "$1" --arg m "$2" '{text:$t, mode:$m}'; }
+
+need_daemon() {
+  [[ -S $SOCK ]] || { echo "omarchy-assistant: daemon not running (systemctl --user start omarchy-assistant)" >&2; exit 1; }
+}
+
+vault_path() { jq -r --arg d "$VAULT_DEFAULT" '.vault // $d' "$HOME/.config/omarchy/assistant/config.json" 2>/dev/null || echo "$VAULT_DEFAULT"; }
+
+cmd=${1:-}
+shift || true
+
+case $cmd in
+ask | note | overheard)
+  need_daemon
+  text="$*"
+  [[ -n $text ]] || text=$(cat)
+  [[ -n $text ]] || exit 0
+  api POST /local/text "$(json_text "$text" "$cmd")" >/dev/null
+  ;;
+
+ptt)
+  # Hold-to-talk. `start` arms the next voxtype transcript for the daemon and
+  # starts recording; `stop` ends recording. voxtype's post_process hook runs
+  # `omarchy-assistant intake`, which consumes the armed marker.
+  mkdir -p "$RUN_DIR"
+  case ${1:-} in
+  start)
+    mode=${2:-ask}
+    rm -f "$RUN_DIR"/armed-*
+    touch "$RUN_DIR/armed-$mode"
+    omarchy-osd -i 󰍬 -m "$([[ $mode == note ]] && echo 'Note…' || echo 'Listening…')" -d 1500 >/dev/null 2>&1 || true
+    voxtype record start
+    ;;
+  stop) voxtype record stop ;;
+  *) echo "usage: omarchy-assistant ptt start [note]|stop" >&2; exit 1 ;;
+  esac
+  ;;
+
+intake)
+  # voxtype [output.post_process] hook: stdin is the transcript, stdout is
+  # what voxtype types. Armed → swallow it and hand it to the daemon; not
+  # armed → pass through unchanged so ordinary dictation still works.
+  text=$(cat)
+  armed=$(ls "$RUN_DIR"/armed-* 2>/dev/null | head -n1 || true)
+  if [[ -z $armed ]]; then
+    printf '%s' "$text"
+    exit 0
+  fi
+  mode=${armed##*/armed-}
+  rm -f "$armed"
+  [[ -z ${text// /} ]] && exit 0
+  api POST /local/text "$(json_text "$text" "$mode")" >/dev/null || printf '%s' "$text"
+  ;;
+
+review)
+  need_daemon
+  while :; do
+    pending=$(api GET /local/proposals | jq -c '.proposals')
+    count=$(jq 'length' <<<"$pending")
+    if ((count == 0)); then
+      omarchy-notification-send -g 󰃰 "Omarchy" "Nothing to review"
+      break
+    fi
+    id=$(jq -r '.[0].id' <<<"$pending")
+    label=$(jq -r '.[0] | "\(.text)\(if .when then " 📅 " + .when else "" end)"' <<<"$pending")
+    kind=$(jq -r '.[0].kind' <<<"$pending")
+    quote=$(jq -r '.[0].quote' <<<"$pending")
+    options=("󰄬	Add task" "󰅖	Dismiss" "󰏫	Open in Obsidian" "󰅁	Later")
+    [[ -n $(jq -r '.[0].when // empty' <<<"$pending") ]] && options=("󰄬	Add task" "󰃭	Add task + calendar" "󰅖	Dismiss" "󰏫	Open in Obsidian" "󰅁	Later")
+    choice=$(omarchy-menu-select "$label ($count to review)" "${options[@]}" || true)
+    case $choice in
+    "Add task") api POST "/local/proposal/$id/accept" >/dev/null ;;
+    "Add task + calendar") api POST "/local/proposal/$id/accept-calendar" >/dev/null ;;
+    Dismiss) api POST "/local/proposal/$id/dismiss" >/dev/null ;;
+    "Open in Obsidian") xdg-open "obsidian://open?path=$(vault_path)/Proposals/$id.md"; break ;;
+    *) break ;;
+    esac
+  done
+  ;;
+
+accept | accept-calendar | dismiss | snooze | nudge)
+  need_daemon
+  id=${1:?usage: omarchy-assistant $cmd <proposal-id>}
+  api POST "/local/proposal/$id/$cmd"
+  echo
+  ;;
+
+digest) need_daemon; api POST /local/digest; echo ;;
+mine-now) need_daemon; api POST /local/mine; echo ;;
+
+pair)
+  need_daemon
+  dev=${1:?usage: omarchy-assistant pair <device-id> [label]}
+  out=$(api POST /local/pair "$(jq -cn --arg d "$dev" --arg l "${2:-}" '{devId:$d, label:$l}')")
+  echo "Paired device: $(jq -r .devId <<<"$out")"
+  echo "Base URL:      $(jq -r .baseUrl <<<"$out")"
+  echo "Token (shown once, enter it in the app): $(jq -r .token <<<"$out")"
+  ;;
+
+listen)
+  case ${1:-toggle} in
+  on) omarchy-toggle assistant-mute off ;;
+  off) omarchy-toggle assistant-mute on ;;
+  toggle) omarchy-toggle assistant-mute toggle ;;
+  esac
+  omarchy-shell -q wearable.assistant refresh >/dev/null 2>&1 || true
+  omarchy-assistant listening && echo "Listening: on" || echo "Listening: off"
+  ;;
+listening) ! omarchy-toggle-enabled assistant-mute ;;
+
+status)
+  need_daemon
+  if [[ ${1:-} == --json ]]; then api GET /status; echo; else
+    api GET /status | jq -r '"Listening: \(.listening)\nThinking: \(.thinking)\nPending proposals: \(.pending)\nLast reply: \(.lastReply)\nCost today: $\(.todayCostUsd|.*10000|round/10000)\nBrain: \(.brain) \(.model)\nVault: \(.vault)\nDevices: \(.devices|map(.id)|join(", "))\nPort: \(.port)"'
+  fi
+  ;;
+
+open-chat)
+  chat=${1:-local}
+  file="$(vault_path)/Conversations/$(date +%F)/${chat//:/_}.md"
+  [[ -f $file ]] && xdg-open "obsidian://open?path=$file" || xdg-open "obsidian://open?path=$(vault_path)"
+  ;;
+
+"" | -h | --help)
+  sed -n 's/^# omarchy:args=/usage: omarchy-assistant /p' "$0"
+  ;;
+*)
+  echo "omarchy-assistant: unknown command '$cmd'" >&2
+  exit 1
+  ;;
+esac
