@@ -176,7 +176,8 @@ mail)
   send)
     to=${1:?to}; subject=${2:?subject}; body=$(cat)
     [[ -n ${body// /} ]] || { echo "empty body" >&2; exit 1; }
-    config_path=${HIMALAYA_CONFIG%%:*}
+    config_path=${HIMALAYA_CONFIG:-}
+    config_path=${config_path%%:*}
     config_path=${config_path:-${XDG_CONFIG_HOME:-$HOME/.config}/himalaya/config.toml}
     from=$(awk -F'"' -v section="[accounts.$acct]" '
       $0 == section { active = 1; next }
@@ -185,13 +186,14 @@ mail)
     ' "$config_path")
     [[ -n $from ]] || { echo "no email address configured for account: $acct" >&2; exit 1; }
     omarchy-assistant approve "send an email from $acct to $to: \"$subject\"" >/dev/null || { echo "denied"; exit 1; }
-    printf 'From: %s\nTo: %s\nSubject: %s\n\n%s\n' "$from" "$to" "$subject" "$body" | himalaya -a "$acct" message send
+    printf 'From: %s\nTo: %s\nSubject: %s\n\n%s\n' "$from" "$to" "$subject" "$body" | himalaya -a "$acct" message send --save sent
     echo "sent"
     ;;
   reply)
     id=${1:?message id}; body=$(cat)
+    [[ -n ${body// /} ]] || { echo "empty body" >&2; exit 1; }
     omarchy-assistant approve "reply from $acct to message $id" >/dev/null || { echo "denied"; exit 1; }
-    printf '%s\n' "$body" | himalaya -a "$acct" message reply "$id"
+    printf '%s\n' "$body" | himalaya -a "$acct" message reply "$id" --send --save sent
     echo "sent"
     ;;
   *) echo "usage: omarchy-assistant mail accounts | <acct> inbox [N] | search <q> | read <id> | send <to> <subject> | reply <id>" >&2; exit 1 ;;
