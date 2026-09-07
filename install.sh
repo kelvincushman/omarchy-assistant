@@ -19,7 +19,8 @@ fi
 
 mkdir -p "$HOME/.local/bin" "$CONF_DIR" "$HOME/.config/systemd/user"
 ln -sf "$HERE/bin/omarchy-assistant" "$HOME/.local/bin/omarchy-assistant"
-chmod +x "$HERE/bin/omarchy-assistant"
+ln -sf "$HERE/bin/omarchy-mail-kernel" "$HOME/.local/bin/omarchy-mail-kernel"
+chmod +x "$HERE/bin/omarchy-assistant" "$HERE/bin/omarchy-mail-kernel"
 [[ -f $CONF_DIR/config.json ]] || cat >"$CONF_DIR/config.json" <<EOF
 {
   "vault": "$VAULT",

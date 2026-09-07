@@ -1,0 +1,235 @@
+#!/bin/bash
+
+# Deterministic email kernel for Omarchy Assistant.
+#
+# This process owns every email side effect. It does not call a model, browser,
+# MCP server, or cloud connector. Himalaya provides IMAP/SMTP; the desktop
+# approval gate protects sending and deletion; the audit log records metadata
+# but never message bodies or credentials.
+
+set -euo pipefail
+
+command -v himalaya >/dev/null || {
+  echo "omarchy-mail-kernel: himalaya is not installed" >&2
+  exit 1
+}
+
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-assistant"
+AUDIT_FILE="$STATE_DIR/mail-audit.jsonl"
+CONFIG_PATH=${HIMALAYA_CONFIG:-}
+CONFIG_PATH=${CONFIG_PATH%%:*}
+CONFIG_PATH=${CONFIG_PATH:-${XDG_CONFIG_HOME:-$HOME/.config}/himalaya/config.toml}
+
+usage() {
+  cat <<'EOF'
+usage:
+  omarchy-mail-kernel accounts
+  omarchy-mail-kernel check [account]
+  omarchy-mail-kernel <account> folders
+  omarchy-mail-kernel <account> inbox [limit]
+  omarchy-mail-kernel <account> search <himalaya query>
+  omarchy-mail-kernel <account> read <message-id>
+  omarchy-mail-kernel <account> draft <to> <subject>       # body on stdin
+  omarchy-mail-kernel <account> send <to> <subject>        # body on stdin; approval required
+  omarchy-mail-kernel <account> reply <message-id>         # body on stdin; approval required
+  omarchy-mail-kernel <account> forward <message-id> <to>  # note on stdin; approval required
+  omarchy-mail-kernel <account> mark-read|mark-unread <message-id>
+  omarchy-mail-kernel <account> star|unstar <message-id>
+  omarchy-mail-kernel <account> archive <message-id>
+  omarchy-mail-kernel <account> move <message-id> <mailbox>
+  omarchy-mail-kernel <account> delete <message-id> [mailbox] # approval required
+EOF
+}
+
+audit() {
+  local action=$1 account=$2 detail=${3:-}
+  install -d -m 700 "$STATE_DIR"
+  jq -cn --arg at "$(date --iso-8601=seconds)" --arg action "$action" \
+    --arg account "$account" --arg detail "$detail" \
+    '{at:$at,action:$action,account:$account,detail:$detail}' >>"$AUDIT_FILE"
+  chmod 600 "$AUDIT_FILE"
+}
+
+account_exists() {
+  himalaya --json account list 2>/dev/null \
+    | jq -e --arg account "$1" '.accounts | any(.name == $account)' >/dev/null
+}
+
+require_account() {
+  local account=$1
+  [[ $account =~ ^[A-Za-z0-9._-]+$ ]] || {
+    echo "invalid account name: $account" >&2
+    exit 2
+  }
+  account_exists "$account" || {
+    echo "unknown account: $account" >&2
+    exit 2
+  }
+}
+
+account_address() {
+  local account=$1
+  awk -F'"' -v section="[accounts.$account]" '
+    $0 == section { active = 1; next }
+    active && /^\[/ { exit }
+    active && /^[[:space:]]*email[[:space:]]*=/ { print $2; exit }
+  ' "$CONFIG_PATH"
+}
+
+require_id() {
+  [[ ${1:-} != -* && ${1:-} =~ ^[A-Za-z0-9._:-]+$ ]] || {
+    echo "invalid message id" >&2
+    exit 2
+  }
+}
+
+require_email() {
+  local address=${1:-}
+  [[ $address != -* && $address != *$'\n'* && $address == *@*.* ]] || {
+    echo "invalid email address: $address" >&2
+    exit 2
+  }
+}
+
+require_subject() {
+  [[ -n ${1:-} && $1 != *$'\n'* && $1 != *$'\r'* ]] || {
+    echo "invalid subject" >&2
+    exit 2
+  }
+}
+
+read_body() {
+  local body
+  body=$(cat)
+  [[ -n ${body//[[:space:]]/} ]] || {
+    echo "empty body" >&2
+    exit 2
+  }
+  printf '%s' "$body"
+}
+
+approve() {
+  omarchy-assistant approve "$1" >/dev/null || {
+    echo "denied"
+    exit 1
+  }
+}
+
+cmd=${1:-}
+[[ -n $cmd ]] || { usage >&2; exit 2; }
+
+case $cmd in
+accounts)
+  (($# == 1)) || { usage >&2; exit 2; }
+  himalaya account list
+  exit 0
+  ;;
+check)
+  account=${2:-}
+  if [[ -n $account ]]; then
+    require_account "$account"
+    himalaya --account "$account" account check
+  else
+    while IFS= read -r account; do
+      himalaya --account "$account" account check
+    done < <(himalaya --json account list | jq -r '.accounts[].name')
+  fi
+  exit 0
+  ;;
+esac
+
+account=$cmd
+action=${2:-inbox}
+shift 2 || true
+require_account "$account"
+
+case $action in
+folders)
+  himalaya --account "$account" mailbox list
+  ;;
+inbox)
+  limit=${1:-15}
+  [[ $limit =~ ^[0-9]+$ ]] && ((limit >= 1 && limit <= 100)) || {
+    echo "inbox limit must be between 1 and 100" >&2
+    exit 2
+  }
+  himalaya --account "$account" envelope list --page-size "$limit"
+  ;;
+search)
+  (($# > 0)) || { echo "search query required" >&2; exit 2; }
+  himalaya --account "$account" envelope search -- "$@"
+  ;;
+read)
+  id=${1:-}; require_id "$id"
+  himalaya --account "$account" message read -- "$id"
+  ;;
+draft | send)
+  to=${1:-}; subject=${2:-}; require_email "$to"; require_subject "$subject"
+  body=$(read_body)
+  from=$(account_address "$account")
+  require_email "$from"
+  if [[ $action == send ]]; then
+    approve "send an email from $from to $to: \"$subject\""
+    printf '%s\n' "$body" | himalaya --account "$account" message compose \
+      --from "$from" --to "$to" --subject "$subject" --send --save sent
+    audit send "$account" "to=$to subject=$subject"
+    echo "sent"
+  else
+    printf '%s\n' "$body" | himalaya --account "$account" message compose \
+      --from "$from" --to "$to" --subject "$subject" --save drafts
+    audit draft "$account" "to=$to subject=$subject"
+    echo "drafted"
+  fi
+  ;;
+reply)
+  id=${1:-}; require_id "$id"; body=$(read_body)
+  approve "reply from $account to message $id"
+  printf '%s\n' "$body" | himalaya --account "$account" message reply "$id" --send --save sent
+  audit reply "$account" "message=$id"
+  echo "sent"
+  ;;
+forward)
+  id=${1:-}; to=${2:-}; require_id "$id"; require_email "$to"; body=$(read_body)
+  approve "forward message $id from $account to $to"
+  printf '%s\n' "$body" | himalaya --account "$account" message forward "$id" \
+    --to "$to" --send --save sent
+  audit forward "$account" "message=$id to=$to"
+  echo "sent"
+  ;;
+mark-read | mark-unread | star | unstar)
+  id=${1:-}; require_id "$id"
+  case $action in
+    mark-read) flag_action=add; flag=seen ;;
+    mark-unread) flag_action=remove; flag=seen ;;
+    star) flag_action=add; flag=flagged ;;
+    unstar) flag_action=remove; flag=flagged ;;
+  esac
+  himalaya --account "$account" flag "$flag_action" --flag "$flag" -- "$id"
+  audit "$action" "$account" "message=$id"
+  ;;
+archive)
+  id=${1:-}; require_id "$id"
+  himalaya --account "$account" message move --to archive -- "$id"
+  audit archive "$account" "message=$id"
+  ;;
+move)
+  id=${1:-}; mailbox=${2:-}; require_id "$id"
+  [[ -n $mailbox && $mailbox != -* && $mailbox != *$'\n'* ]] || {
+    echo "invalid mailbox" >&2
+    exit 2
+  }
+  himalaya --account "$account" message move --to "$mailbox" -- "$id"
+  audit move "$account" "message=$id mailbox=$mailbox"
+  ;;
+delete)
+  id=${1:-}; mailbox=${2:-inbox}; require_id "$id"
+  [[ $mailbox != -* && $mailbox != *$'\n'* ]] || { echo "invalid mailbox" >&2; exit 2; }
+  approve "delete message $id from $account/$mailbox"
+  himalaya --account "$account" message delete --mailbox "$mailbox" -- "$id"
+  audit delete "$account" "message=$id mailbox=$mailbox"
+  ;;
+*)
+  usage >&2
+  exit 2
+  ;;
+esac

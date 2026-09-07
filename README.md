@@ -10,6 +10,11 @@ Built on what Omarchy already ships: `voxtype transcribe` and `pw-record` for sp
 for click-to-run notifications, `systemd-run` for scheduling, the Quickshell plugin API for the bar,
 and `claude -p` (or `codex exec`) as the brain. About 1,000 lines of glue, no dependencies.
 
+Email follows a stricter boundary: a deterministic `omarchy-mail-kernel` owns IMAP/SMTP,
+folders, flags, delivery, approvals, and an audit log. AI is used only to understand message
+content and compose drafts or replies. The normal mail path never loads a Gmail connector,
+browser, or model tool schema.
+
 ## How it works
 
 ```
@@ -60,6 +65,27 @@ Requirements: Omarchy 4.x, `node` 22+ (ships with the `claude` CLI via mise), `c
 | Mute ambient listening | right-click the bar widget, or `omarchy-assistant listen off` |
 | Pair the phone app | `omarchy-assistant pair phone` (prints the token once) |
 | Status | `omarchy-assistant status` |
+
+## Email kernel
+
+`omarchy-assistant mail ...` is a compatibility entrypoint for `omarchy-mail-kernel`. The kernel
+calls Himalaya directly and never calls a model, browser, MCP server, or cloud connector.
+
+```bash
+omarchy-assistant mail accounts
+omarchy-assistant mail check aigentis
+omarchy-assistant mail aigentis inbox 10
+omarchy-assistant mail aigentis search 'from "person@example.com"'
+omarchy-assistant mail aigentis read 42
+printf 'Draft text' | omarchy-assistant mail aigentis draft person@example.com 'Subject'
+printf 'Reply text' | omarchy-assistant mail aigentis reply 42
+omarchy-assistant mail aigentis archive 42
+```
+
+Reading and reversible organization run locally without model cost. Send, reply, forward, and
+delete stop at the desktop approval gate. Successful mutations append metadata (never bodies or
+credentials) to `~/.local/state/omarchy-assistant/mail-audit.jsonl`; sent messages are copied to
+the account's `Sent Mail` folder.
 
 ## Browser and desktop control
 

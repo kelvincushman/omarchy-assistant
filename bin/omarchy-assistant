@@ -160,44 +160,10 @@ secret)
 
 
 mail)
-  # Email through himalaya (IMAP/SMTP, passwords in the keyring). Reading is
-  # free of gates; sending stops for a click on the laptop first.
-  #   mail accounts | mail <acct> inbox [N] | mail <acct> search <query...>
-  #   mail <acct> read <id> | mail <acct> send <to> <subject>   (body on stdin)
-  #   mail <acct> reply <id>                                    (body on stdin)
-  command -v himalaya >/dev/null || { echo "himalaya is not installed: omarchy pkg add himalaya" >&2; exit 1; }
-  sub=${1:-}; shift || true
-  if [[ $sub == accounts ]]; then himalaya account list; exit 0; fi
-  acct=$sub; action=${1:-inbox}; shift || true
-  case $action in
-  inbox) himalaya -a "$acct" envelope list --page-size "${1:-15}" ;;
-  search) himalaya -a "$acct" envelope search "$@" ;;
-  read) himalaya -a "$acct" message read "${1:?message id}" ;;
-  send)
-    to=${1:?to}; subject=${2:?subject}; body=$(cat)
-    [[ -n ${body// /} ]] || { echo "empty body" >&2; exit 1; }
-    config_path=${HIMALAYA_CONFIG:-}
-    config_path=${config_path%%:*}
-    config_path=${config_path:-${XDG_CONFIG_HOME:-$HOME/.config}/himalaya/config.toml}
-    from=$(awk -F'"' -v section="[accounts.$acct]" '
-      $0 == section { active = 1; next }
-      active && /^\[/ { exit }
-      active && /^[[:space:]]*email[[:space:]]*=/ { print $2; exit }
-    ' "$config_path")
-    [[ -n $from ]] || { echo "no email address configured for account: $acct" >&2; exit 1; }
-    omarchy-assistant approve "send an email from $acct to $to: \"$subject\"" >/dev/null || { echo "denied"; exit 1; }
-    printf 'From: %s\nTo: %s\nSubject: %s\n\n%s\n' "$from" "$to" "$subject" "$body" | himalaya -a "$acct" message send --save sent
-    echo "sent"
-    ;;
-  reply)
-    id=${1:?message id}; body=$(cat)
-    [[ -n ${body// /} ]] || { echo "empty body" >&2; exit 1; }
-    omarchy-assistant approve "reply from $acct to message $id" >/dev/null || { echo "denied"; exit 1; }
-    printf '%s\n' "$body" | himalaya -a "$acct" message reply "$id" --send --save sent
-    echo "sent"
-    ;;
-  *) echo "usage: omarchy-assistant mail accounts | <acct> inbox [N] | search <q> | read <id> | send <to> <subject> | reply <id>" >&2; exit 1 ;;
-  esac
+  # Compatibility entrypoint. All email mechanics and side effects live in
+  # the deterministic kernel; the brain only interprets content and supplies
+  # draft text.
+  exec omarchy-mail-kernel "$@"
   ;;
 
 
