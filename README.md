@@ -165,7 +165,9 @@ Memory/about-me.md                     standing facts you maintain; injected int
 Memory/Dossier/                        generated HMLR wiki (entities, concepts, sources, index)
 ```
 
-Files are only ever appended or atomically created. Nothing is deleted.
+Conversation, note and task sources are appended or atomically created; the memory kernel never
+deletes them. `Memory/Dossier/` is a generated view, so Dossier may update or prune those pages while
+the immutable raw snapshots remain outside the vault.
 
 ## Phone app contract
 
