@@ -8,7 +8,8 @@ turn into suggestions that need one click before they become tasks, calendar eve
 
 Built on what Omarchy already ships: `voxtype transcribe` and `pw-record` for speech-to-text, `omarchy-notification-send`
 for click-to-run notifications, `systemd-run` for scheduling, the Quickshell plugin API for the bar,
-and `claude -p` (or `codex exec`) as the brain. About 1,000 lines of glue, no dependencies.
+and `claude -p` (or `codex exec`) as the brain. The daemon has no npm dependencies; memory uses
+a pinned Dossier virtual environment maintained outside the vault.
 
 Email follows a stricter boundary: a deterministic `omarchy-mail-kernel` owns IMAP/SMTP,
 folders, flags, delivery, approvals, and an audit log. AI is used only to understand message
@@ -65,6 +66,8 @@ Requirements: Omarchy 4.x, `node` 22+ (ships with the `claude` CLI via mise), `c
 | Mute ambient listening | right-click the bar widget, or `omarchy-assistant listen off` |
 | Pair the phone app | `omarchy-assistant pair phone` (prints the token once) |
 | Status | `omarchy-assistant status` |
+| Memory status | `omarchy-assistant memory status` |
+| Sync memory now | `omarchy-assistant memory sync` |
 
 ## Email kernel
 
@@ -123,20 +126,32 @@ Replies must say what was verified and how; screenshots land in the vault next t
 | `quietHours` | `[22, 8]` | No mining, no nudges; deferred to the digest |
 | `digestAt` | `08:30` | Daily "today" notification |
 
-## Memory is the vault
+## HMLR memory, with Obsidian as source of truth
 
-The brain has no hidden memory store. Obsidian is the memory:
+The deterministic `omarchy-memory-kernel` integrates
+[Dossier](https://github.com/kelvincushman/HMLR-Wiki), pinned to a reviewed commit. It makes no
+model calls. The assistant's model is used only after retrieval to understand the returned context
+and answer the user.
 
-- **Recall**: when a request refers to the past, a person, a place or a plan, the brain runs
-  `omarchy-assistant recall <words> [--days N]`, a capped ripgrep over the vault, newest files first,
-  and quotes what it found with the date. It searches only when asked something that needs it.
-- **Standing facts**: `Memory/about-me.md` is a note you edit in Obsidian. Its first 800 characters
-  ride along with every request. The brain never writes to it; it asks you to add things.
-- **Links**: suggestions link back to the day they were overheard, so a proposal, the ambient line,
-  the accepted task and the conversation are one click apart in Obsidian's graph.
+This deliberately uses Dossier's document lattice rather than its optional `hmlr` dialogue client.
+Enabling that client would add a second AI conversation pipeline and duplicate the existing Sonnet/Codex
+brain. `omarchy-memory-kernel status` reports this distinction explicitly.
 
-A compiled layer such as [Dossier](https://github.com/kelvincushman/HMLR-Wiki) can be added later
-by ingesting the same folders; nothing here needs to change for that.
+- **Immutable ingest**: changed Markdown notes become content-addressed snapshots in
+  `~/.local/share/omarchy-assistant/memory/project/raw/`. A manifest prevents unchanged files from
+  being ingested twice and preserves older revisions.
+- **Dossier lattice**: Dossier deterministically extracts entity pages, concepts and exact facts.
+  Its wiki lives directly in Obsidian at `Memory/Dossier/`; its SQLite state stays outside the vault.
+- **Grounded recall**: `omarchy-assistant recall "<full question>" [--days N]` syncs first, then
+  returns both Dossier candidates and capped exact `[path:line]` matches from the original notes.
+  The second route covers source text that Dossier's current lexical crawler has not compiled.
+- **Consolidation**: `omarchy-memory.timer` checks for changed notes every 30 minutes and runs the
+  Dossier Gardener at most daily. Recall always syncs first, so a direct question sees fresh notes.
+- **Standing facts**: `Memory/about-me.md` is still maintained by the user and its first 800
+  characters ride with every request. The brain does not silently change it.
+
+The runtime can be repaired or updated to the reviewed pin with `omarchy-memory-kernel setup`.
+`omarchy-memory-kernel status --json` reports the pin, source count, wiki count and last runs.
 
 ## Vault layout
 
@@ -147,6 +162,7 @@ Notes/YYYY-MM-DD.md                    dictated notes
 Proposals/<id>.md                      one file per suggestion, status in frontmatter
 Tasks/Inbox.md                         accepted tasks as `- [ ] text 📅 YYYY-MM-DD`
 Memory/about-me.md                     standing facts you maintain; injected into every request
+Memory/Dossier/                        generated HMLR wiki (entities, concepts, sources, index)
 ```
 
 Files are only ever appended or atomically created. Nothing is deleted.

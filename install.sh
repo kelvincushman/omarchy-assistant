@@ -20,7 +20,8 @@ fi
 mkdir -p "$HOME/.local/bin" "$CONF_DIR" "$HOME/.config/systemd/user"
 ln -sf "$HERE/bin/omarchy-assistant" "$HOME/.local/bin/omarchy-assistant"
 ln -sf "$HERE/bin/omarchy-mail-kernel" "$HOME/.local/bin/omarchy-mail-kernel"
-chmod +x "$HERE/bin/omarchy-assistant" "$HERE/bin/omarchy-mail-kernel"
+ln -sf "$HERE/bin/omarchy-memory-kernel" "$HOME/.local/bin/omarchy-memory-kernel"
+chmod +x "$HERE/bin/omarchy-assistant" "$HERE/bin/omarchy-mail-kernel" "$HERE/bin/omarchy-memory-kernel"
 [[ -f $CONF_DIR/config.json ]] || cat >"$CONF_DIR/config.json" <<EOF
 {
   "vault": "$VAULT",
@@ -34,11 +35,19 @@ chmod +x "$HERE/bin/omarchy-assistant" "$HERE/bin/omarchy-mail-kernel"
 EOF
 mkdir -p "$VAULT"/{Conversations,Overheard,Notes,Proposals,Tasks}
 [[ -f $VAULT/Tasks/Inbox.md ]] || printf '# Inbox\n\n' >"$VAULT/Tasks/Inbox.md"
-[[ -f $VAULT/Memory/about-me.md ]] || { mkdir -p "$VAULT/Memory"; printf -- '---\ntags: [omarchy, memory]\n---\n# About me\n\nFacts the assistant should always know (first 800 characters are sent with every request).\n\n- Name:\n- Regular places:\n- People:\n- Preferences:\n' >"$VAULT/Memory/about-me.md"; }
+[[ -f $VAULT/Memory/about-me.md ]] || { mkdir -p "$VAULT/Memory"; printf -- '---\ntags: [omarchy, memory]\n---\n# About me\n\nFacts the assistant should always know (first 800 characters are sent with every request). Leave unknown fields blank; examples can be mistaken for facts.\n\n- Name:\n- Regular places:\n- People:\n- Preferences:\n' >"$VAULT/Memory/about-me.md"; }
 
 cp "$HERE/systemd/omarchy-assistant.service" "$HOME/.config/systemd/user/omarchy-assistant.service"
+cp "$HERE/systemd/omarchy-memory.service" "$HOME/.config/systemd/user/omarchy-memory.service"
+cp "$HERE/systemd/omarchy-memory.timer" "$HOME/.config/systemd/user/omarchy-memory.timer"
 systemctl --user daemon-reload
 systemctl --user enable --now omarchy-assistant.service
+if "$HERE/bin/omarchy-memory-kernel" setup; then
+  "$HERE/bin/omarchy-memory-kernel" maintain
+  systemctl --user enable --now omarchy-memory.timer
+else
+  echo "warning: Dossier memory setup failed; retry with: omarchy-memory-kernel setup" >&2
+fi
 sleep 1
 systemctl --user --no-pager --lines=3 status omarchy-assistant.service || true
 

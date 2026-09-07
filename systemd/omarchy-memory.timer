@@ -1,0 +1,13 @@
+[Unit]
+Description=Maintain Omarchy Assistant memory every 30 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=30min
+Persistent=true
+RandomizedDelaySec=2min
+Unit=omarchy-memory.service
+
+[Install]
+WantedBy=timers.target
+

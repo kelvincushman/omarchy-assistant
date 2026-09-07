@@ -1,0 +1,8 @@
+[Unit]
+Description=Sync the Obsidian vault into the HMLR Dossier memory lattice
+After=omarchy-assistant.service
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/omarchy-memory-kernel maintain
+

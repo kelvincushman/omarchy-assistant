@@ -1,0 +1,469 @@
+#!/usr/bin/env python3
+"""Deterministic Obsidian-to-Dossier memory kernel for Omarchy Assistant.
+
+Obsidian remains the source of truth. Changed Markdown files are copied into
+Dossier's immutable raw store, ingested once, and retrieved through both the
+Dossier lattice and exact source matches. This process never calls a model.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from typing import Any
+
+
+DOSSIER_REPO = "https://github.com/kelvincushman/HMLR-Wiki.git"
+DOSSIER_COMMIT = "7a3d8b3a458b61c1421eb572329d0cc3e2cee029"
+MAX_SOURCE_BYTES = 2 * 1024 * 1024
+MAX_QUERY_OUTPUT = 5_000
+MAX_CANDIDATE_PAGES = 4
+STOPWORDS = {
+    "a", "about", "an", "and", "are", "as", "at", "be", "did", "do",
+    "for", "from", "had", "has", "have", "how", "i", "in", "is", "it",
+    "me", "my", "of", "on", "or", "say", "said", "that", "the", "this",
+    "to", "was", "we", "were", "what", "when", "where", "which", "who",
+    "with", "you", "your",
+}
+ENTITY_NOISE = STOPWORDS | {
+    "all", "ambient", "bash", "by", "calls", "could", "create", "done", "edit",
+    "every", "everything", "explicit", "facts", "hello", "here", "hold",
+    "importer", "inbox", "keep", "login", "loud", "make", "memory", "monday",
+    "name", "never", "node", "none", "nudges", "observations", "oh", "one",
+    "open", "people", "plugins", "preferences", "read", "regular", "release",
+    "september", "send", "six", "sunday", "that", "then", "things", "three",
+    "timezone", "today", "tuesday", "use", "verified", "yum",
+}
+
+
+def home() -> Path:
+    base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
+    return Path(os.environ.get("OMARCHY_MEMORY_HOME", base / "omarchy-assistant/memory"))
+
+
+def vault() -> Path:
+    override = os.environ.get("OMARCHY_VAULT")
+    if override:
+        return Path(override).expanduser().resolve()
+    config = Path.home() / ".config/omarchy/assistant/config.json"
+    try:
+        value = json.loads(config.read_text(encoding="utf-8")).get("vault")
+        if value:
+            return Path(value).expanduser().resolve()
+    except (OSError, json.JSONDecodeError):
+        pass
+    return (Path.home() / "Documents/Omarchy").resolve()
+
+
+def project() -> Path:
+    return home() / "project"
+
+
+def manifest_path() -> Path:
+    return home() / "manifest.json"
+
+
+def load_manifest() -> dict[str, Any]:
+    try:
+        data = json.loads(manifest_path().read_text(encoding="utf-8"))
+        if data.get("version") == 1 and isinstance(data.get("sources"), dict):
+            return data
+    except (OSError, json.JSONDecodeError):
+        pass
+    return {"version": 1, "sources": {}, "lastSync": None, "lastGarden": None}
+
+
+def atomic_json(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(data, stream, indent=2, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(name, path)
+    finally:
+        try:
+            os.unlink(name)
+        except FileNotFoundError:
+            pass
+
+
+def run(argv: list[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        argv,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE if capture else None,
+        stderr=subprocess.PIPE if capture else None,
+    )
+
+
+def dossier_bin() -> Path:
+    override = os.environ.get("OMARCHY_DOSSIER_BIN")
+    return Path(override) if override else home() / "venv/bin/dossier"
+
+
+def ensure_project_layout() -> None:
+    root = project()
+    raw = root / "raw"
+    wiki_link = root / "wiki"
+    wiki_target = vault() / "Memory/Dossier"
+    raw.mkdir(parents=True, exist_ok=True)
+    (root / ".hmlr").mkdir(parents=True, exist_ok=True)
+    wiki_target.mkdir(parents=True, exist_ok=True)
+    for child in ("entities", "concepts", "sources"):
+        (wiki_target / child).mkdir(exist_ok=True)
+
+    if wiki_link.is_symlink():
+        if wiki_link.resolve() != wiki_target.resolve():
+            raise RuntimeError(f"{wiki_link} points to the wrong vault")
+    elif wiki_link.exists():
+        if any(wiki_link.iterdir()):
+            raise RuntimeError(f"refusing to replace non-empty {wiki_link}")
+        wiki_link.rmdir()
+        wiki_link.symlink_to(wiki_target, target_is_directory=True)
+    else:
+        wiki_link.symlink_to(wiki_target, target_is_directory=True)
+
+
+def setup() -> None:
+    root = home()
+    source = root / "source"
+    venv = root / "venv"
+    root.mkdir(parents=True, exist_ok=True)
+    ensure_project_layout()
+
+    if not (source / ".git").exists():
+        if source.exists():
+            raise RuntimeError(f"refusing to replace non-git path {source}")
+        run(["git", "clone", "--filter=blob:none", DOSSIER_REPO, str(source)])
+    run(["git", "-C", str(source), "fetch", "origin", DOSSIER_COMMIT])
+    run(["git", "-C", str(source), "checkout", "--detach", DOSSIER_COMMIT])
+
+    if not (venv / "bin/python").exists():
+        run([sys.executable, "-m", "venv", str(venv)])
+    run([str(venv / "bin/python"), "-m", "pip", "install", "--disable-pip-version-check", str(source / "dossier")])
+    print(f"Dossier pinned: {DOSSIER_COMMIT}")
+    print(f"Project: {project()}")
+    print(f"Wiki: {vault() / 'Memory/Dossier'}")
+
+
+def require_runtime() -> Path:
+    binary = dossier_bin()
+    if not binary.is_file():
+        raise RuntimeError("Dossier is not installed; run: omarchy-memory-kernel setup")
+    ensure_project_layout()
+    return binary
+
+
+def source_files() -> list[Path]:
+    root = vault()
+    if not root.is_dir():
+        raise RuntimeError(f"vault does not exist: {root}")
+    files: list[Path] = []
+    for path in root.rglob("*.md"):
+        rel = path.relative_to(root)
+        if path.is_symlink() or ".obsidian" in rel.parts or ".trash" in rel.parts:
+            continue
+        if len(rel.parts) >= 2 and rel.parts[:2] == ("Memory", "Dossier"):
+            continue
+        if path.stat().st_size > MAX_SOURCE_BYTES:
+            continue
+        files.append(path)
+    return sorted(files, key=lambda p: p.relative_to(root).as_posix())
+
+
+def digest(path: Path) -> str:
+    value = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(131072), b""):
+            value.update(block)
+    return value.hexdigest()
+
+
+def raw_name(path: Path, sha: str) -> str:
+    rel = path.relative_to(vault()).with_suffix("").as_posix().lower()
+    slug = re.sub(r"[^a-z0-9]+", "_", rel).strip("_")[:100] or "note"
+    date = dt.datetime.fromtimestamp(path.stat().st_mtime).date().isoformat()
+    return f"{date}_{slug}_{sha[:12]}.md"
+
+
+def sync(*, quiet: bool = False) -> dict[str, int]:
+    binary = require_runtime()
+    state = load_manifest()
+    counts = {"seen": 0, "ingested": 0, "unchanged": 0, "empty": 0, "pruned": 0, "failed": 0}
+    lock_path = home() / "kernel.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+", encoding="utf-8") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        state = load_manifest()
+        for path in source_files():
+            counts["seen"] += 1
+            rel = path.relative_to(vault()).as_posix()
+            sha = digest(path)
+            previous = state["sources"].get(rel, {})
+            if previous.get("sha256") == sha:
+                counts["unchanged"] += 1
+                continue
+            if not path.read_text(encoding="utf-8", errors="replace").strip():
+                state["sources"][rel] = {"sha256": sha, "status": "empty"}
+                counts["empty"] += 1
+                continue
+            name = raw_name(path, sha)
+            raw = project() / "raw" / name
+            if not raw.exists():
+                with raw.open("xb") as target, path.open("rb") as source:
+                    shutil.copyfileobj(source, target)
+            try:
+                result = run([str(binary), "--project", str(project()), "ingest", str(raw)], capture=True)
+            except subprocess.CalledProcessError as error:
+                counts["failed"] += 1
+                print(f"memory ingest failed for {rel}: {error.stderr.strip()}", file=sys.stderr)
+                continue
+            state["sources"][rel] = {
+                "sha256": sha,
+                "raw": name,
+                "ingestedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
+            }
+            counts["ingested"] += 1
+            if not quiet:
+                print(f"ingested {rel}: {result.stdout.splitlines()[0] if result.stdout else 'ok'}")
+        counts["pruned"] = prune_generated_wiki()
+        state["lastSync"] = dt.datetime.now(dt.timezone.utc).isoformat()
+        atomic_json(manifest_path(), state)
+    if not quiet:
+        print("sync " + " ".join(f"{key}={value}" for key, value in counts.items()))
+    if counts["failed"]:
+        raise RuntimeError(f"{counts['failed']} source(s) failed to ingest")
+    return counts
+
+
+def prune_generated_wiki() -> int:
+    """Remove obvious false entities/concepts emitted by the stub extractor.
+
+    The upstream default sees any capitalised sentence starter as an entity.
+    Human-edited pages always survive; raw snapshots remain immutable, so this
+    can be revisited when an improved deterministic extractor lands upstream.
+    """
+    removed = 0
+    wiki = vault() / "Memory/Dossier"
+    for kind in ("entities", "concepts"):
+        for path in (wiki / kind).glob("*.md"):
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if re.search(r"^edited_by:\s*human\s*$", text, flags=re.MULTILINE):
+                continue
+            match = re.search(r"^name:\s*[\"']?([^\n\"']+)", text, flags=re.MULTILINE)
+            name = match.group(1).strip() if match else path.stem.replace("_", " ")
+            tokens = [token.lower() for token in re.findall(r"[A-Za-z]+", name)]
+            if not tokens or any(token in ENTITY_NOISE for token in tokens):
+                path.unlink()
+                removed += 1
+    for path in (wiki / "sources").glob("*.md"):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        cleaned = clean_source_links(text, wiki)
+        if cleaned != text:
+            path.write_text(cleaned, encoding="utf-8")
+    return removed
+
+
+def clean_source_links(text: str, wiki: Path) -> str:
+    """Drop links to heuristic pages that the quality filter removed."""
+    for heading, folder in (("Entities", "entities"), ("Concepts", "concepts")):
+        pattern = rf"## {heading} \(\d+\)\n\n(.*?)(?=\n## |\Z)"
+        match = re.search(pattern, text, flags=re.DOTALL)
+        if not match:
+            continue
+        rows = []
+        for line in match.group(1).strip().splitlines():
+            target = re.fullmatch(r"- \[\[" + folder + r"/([^\]]+)\]\]", line.strip())
+            if target and (wiki / folder / f"{target.group(1)}.md").is_file():
+                rows.append(line.strip())
+        body = "\n".join(rows) if rows else "_none detected_"
+        replacement = f"## {heading} ({len(rows)})\n\n{body}\n"
+        text = text[:match.start()] + replacement + text[match.end():]
+    return text
+
+
+def direct_matches(question: str, *, days: int, limit: int) -> list[str]:
+    words = [word.lower() for word in re.findall(r"[\w@.-]+", question) if len(word) > 1 and word.lower() not in STOPWORDS]
+    if not words:
+        return []
+    cutoff = dt.datetime.now().timestamp() - days * 86400 if days > 0 else 0
+    rows: list[tuple[float, str]] = []
+    for path in source_files():
+        if cutoff and path.stat().st_mtime < cutoff:
+            continue
+        rel = path.relative_to(vault()).as_posix()
+        for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            lowered = line.lower()
+            hits = sum(word in lowered for word in words)
+            if hits:
+                clean = re.sub(r"\s+", " ", line).strip()[:300]
+                rows.append((path.stat().st_mtime + hits * 1e12, f"[{rel}:{number}] {clean}"))
+    rows.sort(key=lambda item: item[0], reverse=True)
+    return [row for _, row in rows[:limit]]
+
+
+def query(question: str, *, days: int, limit: int, do_sync: bool) -> None:
+    binary = require_runtime()
+    if do_sync:
+        sync(quiet=True)
+    try:
+        result = run([str(binary), "--project", str(project()), "query", question, "--limit", str(min(limit, 10))], capture=True)
+        lattice = hydrate_candidate_pages(result.stdout, question)
+    except subprocess.CalledProcessError as error:
+        lattice = f"Dossier query unavailable: {error.stderr.strip()}"
+    print("## HMLR Dossier lattice")
+    print(lattice or "No lattice candidates.")
+    print("\n## Direct Obsidian source matches")
+    matches = direct_matches(question, days=days, limit=min(limit, 10))
+    print("\n".join(matches) if matches else "No direct source matches.")
+
+
+def hydrate_candidate_pages(output: str, question: str) -> str:
+    """Expand Dossier's ranked refs into cited page evidence.
+
+    Dossier 0.1's hydrator keeps only the first body line, normally
+    ``## Evidence``. Reading the selected pages here preserves its ranking
+    while returning the evidence the answering model actually needs.
+    """
+    refs = [
+        ref for ref in re.findall(r"^\s+wiki\s+(\S+\.md)\s+score=", output, flags=re.MULTILINE)
+        if ref.startswith(("entities/", "concepts/"))
+    ]
+    lines = [line for line in output.splitlines() if line.startswith("question:") or line.startswith("candidates (")]
+    budget = MAX_QUERY_OUTPUT
+    wiki_root = (project() / "wiki").resolve()
+    words = [word.lower() for word in re.findall(r"[\w@.-]+", question) if len(word) > 1 and word.lower() not in STOPWORDS]
+    added = 0
+    for ref in refs:
+        candidate = (project() / "wiki" / ref).resolve()
+        if not candidate.is_relative_to(wiki_root) or not candidate.is_file():
+            continue
+        text = candidate.read_text(encoding="utf-8", errors="replace")
+        if words and not any(word in text.lower() for word in words):
+            continue
+        parts = text.split("---", 2)
+        body = parts[2].strip() if len(parts) == 3 else text.strip()
+        block = f"\n### [{ref.removesuffix('.md')}]\n{body[:1000]}"
+        if len(block) > budget:
+            break
+        lines.append(block)
+        budget -= len(block)
+        added += 1
+        if added >= MAX_CANDIDATE_PAGES:
+            break
+
+    fact_refs = re.findall(r"^\s+fact\s+(\S+)\s+score=", output, flags=re.MULTILINE)
+    if fact_refs:
+        import sqlite3
+
+        with sqlite3.connect(project() / ".hmlr/facts.db") as connection:
+            for ref in fact_refs:
+                row = connection.execute("SELECT value, source FROM facts WHERE key = ?", (ref,)).fetchone()
+                if row:
+                    source = Path(row[1]).name if row[1] else "unknown"
+                    lines.append(f"\n- [fact:{ref}] {ref} = {row[0]} (source: {source})")
+    return "\n".join(lines).strip()[:MAX_QUERY_OUTPUT]
+
+
+def garden(*, quiet: bool = False) -> None:
+    binary = require_runtime()
+    result = run([str(binary), "--project", str(project()), "gardener"], capture=True)
+    state = load_manifest()
+    state["lastGarden"] = dt.datetime.now(dt.timezone.utc).isoformat()
+    atomic_json(manifest_path(), state)
+    if not quiet:
+        print(result.stdout.strip())
+
+
+def maintain() -> None:
+    sync(quiet=True)
+    state = load_manifest()
+    last = state.get("lastGarden")
+    due = True
+    if last:
+        try:
+            due = dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(last) >= dt.timedelta(hours=24)
+        except ValueError:
+            pass
+    if due:
+        garden(quiet=True)
+
+
+def status(as_json: bool) -> None:
+    state = load_manifest()
+    data = {
+        "installed": dossier_bin().is_file(),
+        "pinnedCommit": DOSSIER_COMMIT,
+        "project": str(project()),
+        "vault": str(vault()),
+        "wiki": str(vault() / "Memory/Dossier"),
+        "sources": len(state.get("sources", {})),
+        "rawSnapshots": len(list((project() / "raw").glob("*.md"))) if (project() / "raw").exists() else 0,
+        "wikiPages": len(list((vault() / "Memory/Dossier").rglob("*.md"))) if (vault() / "Memory/Dossier").exists() else 0,
+        "lastSync": state.get("lastSync"),
+        "lastGarden": state.get("lastGarden"),
+        "mode": "dossier-deterministic-document-lattice",
+        "hmlrDialogueEngine": False,
+        "modelCalls": False,
+    }
+    if as_json:
+        print(json.dumps(data, separators=(",", ":")))
+    else:
+        for key, value in data.items():
+            print(f"{key}: {value}")
+
+
+def parser() -> argparse.ArgumentParser:
+    top = argparse.ArgumentParser(description="Deterministic Obsidian ↔ HMLR Dossier memory kernel")
+    commands = top.add_subparsers(dest="command", required=True)
+    commands.add_parser("setup", help="install the pinned Dossier runtime in a private virtualenv")
+    commands.add_parser("sync", help="ingest changed Obsidian Markdown files")
+    query_parser = commands.add_parser("query", help="retrieve grounded memory context")
+    query_parser.add_argument("question", nargs="+")
+    query_parser.add_argument("--days", type=int, default=0)
+    query_parser.add_argument("--limit", type=int, default=10)
+    query_parser.add_argument("--no-sync", action="store_true")
+    commands.add_parser("garden", help="consolidate and lint the Dossier wiki")
+    commands.add_parser("maintain", help="sync now and garden at most daily")
+    status_parser = commands.add_parser("status", help="show memory runtime and index status")
+    status_parser.add_argument("--json", action="store_true")
+    return top
+
+
+def main() -> int:
+    args = parser().parse_args()
+    try:
+        if args.command == "setup":
+            setup()
+        elif args.command == "sync":
+            sync()
+        elif args.command == "query":
+            query(" ".join(args.question), days=max(0, args.days), limit=max(1, min(args.limit, 50)), do_sync=not args.no_sync)
+        elif args.command == "garden":
+            garden()
+        elif args.command == "maintain":
+            maintain()
+        elif args.command == "status":
+            status(args.json)
+    except (RuntimeError, OSError, subprocess.CalledProcessError) as error:
+        print(f"omarchy-memory-kernel: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
