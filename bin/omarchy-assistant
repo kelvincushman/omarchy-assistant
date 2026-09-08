@@ -197,13 +197,28 @@ memory)
 
 approve)
   # Human gate for login, payment, sending and deleting. Exit 0 = allowed.
-  # An unattended laptop denies after 60 s; the menu may stay open until
-  # dismissed, which is acceptable for a gate that defaulted to no.
+  # Clicking the notification allows once. An unattended or locked laptop
+  # denies after 60 s, without depending on the menu overlay being available.
   what=${*:?usage: omarchy-assistant approve <what the assistant wants to do>}
-  omarchy-notification-send -g 󰌾 -u critical --app-name Omarchy "Omarchy wants to: $what" "Choose in the menu (denies in 60 s)" >/dev/null 2>&1 || true
-  choice=$(timeout 60 omarchy-menu-select "Allow Omarchy to: $what" "󰄬	Allow" "󰅖	Deny" 2>/dev/null || true)
-  omarchy-shell -q notifications dismissAll >/dev/null 2>&1 || true
-  [[ $choice == Allow ]] && { echo allowed; exit 0; }
+  install -d -m 700 "$RUN_DIR"
+  approval_file=$(mktemp "$RUN_DIR/approval.XXXXXX")
+  rm -f -- "$approval_file"
+  trap 'rm -f -- "$approval_file"' EXIT
+  notification_id=$(omarchy-notification-send -g 󰌾 -u critical -t 60000 -p \
+    --app-name Omarchy "Omarchy wants to: $what" \
+    "Click this notification to allow once. No action denies in 60 seconds." \
+    --exec /usr/bin/touch "$approval_file" 2>/dev/null || true)
+  for _ in {1..120}; do
+    if [[ -e $approval_file ]]; then
+      [[ $notification_id =~ ^[0-9]+$ ]] && omarchy-notification-send -r "$notification_id" -t 2500 \
+        -g 󰄬 --app-name Omarchy "Allowed" "$what" >/dev/null 2>&1 || true
+      echo allowed
+      exit 0
+    fi
+    sleep 0.5
+  done
+  [[ $notification_id =~ ^[0-9]+$ ]] && omarchy-notification-send -r "$notification_id" -t 2500 \
+    -g 󰅖 --app-name Omarchy "Denied" "$what" >/dev/null 2>&1 || true
   echo denied
   exit 1
   ;;

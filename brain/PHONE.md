@@ -28,7 +28,7 @@ If a call times out after a tap, send, post, payment, or delete, inspect first.
 3. Prepare it with `compose PHONE CHANNEL RECIPIENT --body-file FILE`. This
    cannot send.
 4. Call `send PHONE CHANNEL RECIPIENT --expect-body-file FILE`. The kernel
-   shows the exact recipient and body in the desktop Allow/Deny gate.
+   shows the exact recipient and body in a click-to-allow desktop gate.
 5. Report success only when the returned JSON has `verified: true`. Inspect the
    conversation for stronger proof. Delete the temporary file.
 
