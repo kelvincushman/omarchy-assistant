@@ -17,7 +17,10 @@ AUDIT_FILE="$STATE_DIR/phone-audit.jsonl"
 usage() {
   cat <<'EOF'
 usage:
-  omarchy-phone-kernel status|discover|phones|apps|flows
+  omarchy-phone-kernel console
+  omarchy-phone-kernel status|discover|phones|apps|flows|reviews
+  omarchy-phone-kernel review-add <draft.json>
+  omarchy-phone-kernel review-action <id> claim|complete|uncertain --revision <n> [--evidence <text>]
   omarchy-phone-kernel phone|installed|current|ui <phone>
   omarchy-phone-kernel messages <phone> sms|whatsapp
   omarchy-phone-kernel screenshot <phone> -o <file>
@@ -84,6 +87,11 @@ is_sensitive() {
   [[ $value =~ (buy|comment|delete|follow|like|log[[:space:]]?in|pay|post|publish|purchase|remove|reply|repost|send|share|sign[[:space:]]?in|subscribe|upload) ]]
 }
 
+if [[ ${1:-} == console ]]; then
+  (($# == 1)) || { usage >&2; exit 2; }
+  exec xdg-open "${CONTENTSWARM_API_URL%/api/v1}/"
+fi
+
 if [[ ! -x $CONTENTSWARM_BIN ]]; then
   if command -v contentswarm >/dev/null; then
     CONTENTSWARM_BIN=$(command -v contentswarm)
@@ -105,7 +113,7 @@ cmd=${1:-}
 shift
 
 case $cmd in
-status | discover | phones | apps | flows)
+status | discover | phones | apps | flows | reviews)
   (($# == 0)) || { usage >&2; exit 2; }
   exec "$CONTENTSWARM_BIN" "$cmd"
   ;;
@@ -117,7 +125,7 @@ messages)
   (($# == 2)) || { usage >&2; exit 2; }
   exec "$CONTENTSWARM_BIN" messages "$1" "$2"
   ;;
-launch | type | swipe | flow | runs | health)
+launch | type | swipe | flow | runs | health | review-add | review-action)
   (($# > 0)) || { usage >&2; exit 2; }
   exec "$CONTENTSWARM_BIN" "$cmd" "$@"
   ;;

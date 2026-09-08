@@ -1,5 +1,11 @@
 # Omarchy Assistant
 
+Open the phone GUI from the **ContentSwarm** application launcher, or run
+`omarchy-phone-kernel console`. The ContentSwarm installer adds the launcher.
+On first use, sign in with the separate console token stored in your keyring
+(`service=contentswarm`, `account=console-token`). The browser keeps a session
+cookie. The agent's API credential cannot log in or approve its own drafts.
+
 Omarchy Assistant turns an Omarchy laptop into a voice-driven personal
 orchestrator. A hotkey or wearable supplies speech, a small cloud model
 understands the request, and deterministic kernels perform email, memory,
@@ -255,6 +261,17 @@ cleared. The audit log at
 a masked recipient, without bodies or API tokens.
 
 ### Social media
+
+The ContentSwarm mobile console at `http://127.0.0.1:5055` provides tasks,
+phone preview, learned workflows, and an X/LinkedIn/Facebook reply review queue.
+Sign in with the separate ContentSwarm console token. Humanizer 3.0.0 is bundled for the
+drafting agent. Compare original messages with drafts, approve, reject or edit.
+The queue is a handoff for an external agent; approval alone does not publish.
+Phone action approvals still apply when delivering a reviewed draft.
+
+`omarchy-assistant phone reviews` lists records. `phone review-add FILE` submits
+a draft; `phone review-action ID claim|complete|uncertain --revision N` supports
+worker handoff. No automatic background collector is installed.
 
 ContentSwarm includes skills and learn/replay support for TikTok, Instagram,
 YouTube, X, Facebook, and LinkedIn. The brain uses semantic actions first,

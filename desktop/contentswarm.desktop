@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=ContentSwarm
+Comment=Phone controls, tasks and social reply review
+Exec=omarchy-phone-kernel console
+Icon=phone
+Terminal=false
+Categories=Utility;

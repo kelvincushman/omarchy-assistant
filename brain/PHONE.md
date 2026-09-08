@@ -43,6 +43,18 @@ brain response.
 
 ## Social media
 
+For every X, LinkedIn or Facebook reply, read
+`~/.local/share/omarchy-assistant/ContentSwarm/orphus/skills/contentswarm-social-review/SKILL.md`
+and its bundled Humanizer reference before drafting. Use its voice-preserving
+embedded mode. Route its CLI commands through `omarchy-phone-kernel`:
+`reviews`, `review-add FILE`, and `review-action ID ACTION --revision N`.
+The owner reviews the source and draft in the ContentSwarm web console.
+Never approve a draft yourself or invoke a notification action to simulate the
+owner. Claims only accept approved revisions. Delivery still uses the normal
+phone action approval gates; do not bypass them because the queue was approved.
+After sending, inspect the actual published reply before marking complete.
+Report ambiguous outcomes as uncertain and never auto-retry them.
+
 Use the existing ContentSwarm flows and app skills for TikTok, Instagram,
 YouTube, X, Facebook, and LinkedIn. A learned flow must stop before Post, Send,
 Comment, Like, Follow, Subscribe, Repost, Share, Delete, Login, or Pay. Invoke
