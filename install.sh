@@ -21,7 +21,8 @@ mkdir -p "$HOME/.local/bin" "$CONF_DIR" "$HOME/.config/systemd/user"
 ln -sf "$HERE/bin/omarchy-assistant" "$HOME/.local/bin/omarchy-assistant"
 ln -sf "$HERE/bin/omarchy-mail-kernel" "$HOME/.local/bin/omarchy-mail-kernel"
 ln -sf "$HERE/bin/omarchy-memory-kernel" "$HOME/.local/bin/omarchy-memory-kernel"
-chmod +x "$HERE/bin/omarchy-assistant" "$HERE/bin/omarchy-mail-kernel" "$HERE/bin/omarchy-memory-kernel"
+ln -sf "$HERE/bin/omarchy-phone-kernel" "$HOME/.local/bin/omarchy-phone-kernel"
+chmod +x "$HERE/bin/omarchy-assistant" "$HERE/bin/omarchy-mail-kernel" "$HERE/bin/omarchy-memory-kernel" "$HERE/bin/omarchy-phone-kernel" "$HERE/bin/omarchy-contentswarm-service" "$HERE/scripts/install-contentswarm.sh"
 [[ -f $CONF_DIR/config.json ]] || cat >"$CONF_DIR/config.json" <<EOF
 {
   "vault": "$VAULT",
@@ -42,6 +43,9 @@ cp "$HERE/systemd/omarchy-memory.service" "$HOME/.config/systemd/user/omarchy-me
 cp "$HERE/systemd/omarchy-memory.timer" "$HOME/.config/systemd/user/omarchy-memory.timer"
 systemctl --user daemon-reload
 systemctl --user enable --now omarchy-assistant.service
+if [[ ${OMARCHY_ASSISTANT_INSTALL_PHONE:-1} == 1 ]]; then
+  "$HERE/scripts/install-contentswarm.sh" "${CONTENTSWARM_SOURCE:-}"
+fi
 if "$HERE/bin/omarchy-memory-kernel" setup; then
   "$HERE/bin/omarchy-memory-kernel" maintain
   systemctl --user enable --now omarchy-memory.timer

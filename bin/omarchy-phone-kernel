@@ -1,0 +1,233 @@
+#!/bin/bash
+
+# Deterministic Android phone kernel for Omarchy Assistant. ContentSwarm owns
+# device mechanics; this wrapper owns approval, keyring credentials, the
+# constrained command surface, and a metadata-only audit trail.
+
+set -euo pipefail
+
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/omarchy-assistant"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-assistant"
+RUN_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/omarchy-assistant"
+CONTENTSWARM_HOME="${CONTENTSWARM_HOME:-$DATA_HOME/ContentSwarm}"
+CONTENTSWARM_BIN="${CONTENTSWARM_BIN:-$CONTENTSWARM_HOME/.venv/bin/contentswarm}"
+CONTENTSWARM_API_URL="${CONTENTSWARM_API_URL:-http://127.0.0.1:5055/api/v1}"
+AUDIT_FILE="$STATE_DIR/phone-audit.jsonl"
+
+usage() {
+  cat <<'EOF'
+usage:
+  omarchy-phone-kernel status|discover|phones|apps|flows
+  omarchy-phone-kernel phone|installed|current|ui <phone>
+  omarchy-phone-kernel messages <phone> sms|whatsapp
+  omarchy-phone-kernel screenshot <phone> -o <file>
+  omarchy-phone-kernel launch <phone> <app>
+  omarchy-phone-kernel tap <phone> --text|--id|--desc <selector>
+  omarchy-phone-kernel type <phone> <text> [--append]
+  omarchy-phone-kernel key <phone> <allowlisted-key>
+  omarchy-phone-kernel swipe <phone> <x1> <y1> <x2> <y2> [--duration-ms N]
+  omarchy-phone-kernel compose <phone> sms|whatsapp <recipient> --body-file <file> [--recipient-label <name>]
+  omarchy-phone-kernel send <phone> sms|whatsapp <recipient> --expect-body-file <file>
+  omarchy-phone-kernel flow|runs|health <flow> [options]
+  omarchy-phone-kernel replay <phone> <flow> [--wait]
+  omarchy-phone-kernel learn <phone> <task> --name <flow> [--wait]
+  omarchy-phone-kernel run <phone> <task> [--wait]
+EOF
+}
+
+audit() {
+  local action=$1 phone=${2:-} detail=${3:-}
+  install -d -m 700 "$STATE_DIR"
+  jq -cn --arg at "$(date --iso-8601=seconds)" --arg action "$action" \
+    --arg phone "$phone" --arg detail "$detail" \
+    '{at:$at,action:$action,phone:$phone,detail:$detail}' >>"$AUDIT_FILE"
+  chmod 600 "$AUDIT_FILE"
+}
+
+approve() {
+  omarchy-assistant approve "$1" >/dev/null || {
+    echo '{"error":"denied"}'
+    exit 1
+  }
+}
+
+require_file() {
+  local file=${1:-}
+  [[ -f $file && -r $file ]] || { echo '{"error":"message file is not readable"}' >&2; exit 2; }
+  [[ $(wc -c <"$file") -le 4000 ]] || { echo '{"error":"message is over 4000 bytes"}' >&2; exit 2; }
+  [[ -n $(tr -d '[:space:]' <"$file") ]] || { echo '{"error":"message is empty"}' >&2; exit 2; }
+}
+
+require_message_target() {
+  local phone=$1 channel=$2 recipient=$3
+  [[ $phone =~ ^[A-Za-z0-9._:-]+$ ]] || { echo '{"error":"invalid phone name"}' >&2; exit 2; }
+  [[ $channel == sms || $channel == whatsapp ]] || { echo '{"error":"channel must be sms or whatsapp"}' >&2; exit 2; }
+  [[ $recipient =~ ^\+?[0-9][0-9\ \(\)-]{2,30}$ ]] || { echo '{"error":"invalid recipient"}' >&2; exit 2; }
+}
+
+compose_state() {
+  printf '%s/phone-compose-%s.json' "$RUN_DIR" "$1"
+}
+
+compose_token() {
+  printf '%s/phone-compose-%s.token' "$RUN_DIR" "$1"
+}
+
+mask_recipient() {
+  local recipient=$1 digits
+  digits=${recipient//[^0-9]/}
+  printf '…%s' "${digits: -4}"
+}
+
+is_sensitive() {
+  local value=${*,,}
+  [[ $value =~ (buy|comment|delete|follow|like|log[[:space:]]?in|pay|post|publish|purchase|remove|reply|repost|send|share|sign[[:space:]]?in|subscribe|upload) ]]
+}
+
+if [[ ! -x $CONTENTSWARM_BIN ]]; then
+  if command -v contentswarm >/dev/null; then
+    CONTENTSWARM_BIN=$(command -v contentswarm)
+  else
+    echo '{"error":"ContentSwarm is not installed; run scripts/install-contentswarm.sh"}' >&2
+    exit 1
+  fi
+fi
+
+if [[ -z ${CONTENTSWARM_API_TOKEN:-} ]]; then
+  command -v secret-tool >/dev/null || { echo '{"error":"secret-tool is required"}' >&2; exit 1; }
+  CONTENTSWARM_API_TOKEN=$(secret-tool lookup service contentswarm account api-token || true)
+  [[ -n $CONTENTSWARM_API_TOKEN ]] || { echo '{"error":"ContentSwarm API token is missing from the keyring"}' >&2; exit 1; }
+fi
+export CONTENTSWARM_API_TOKEN CONTENTSWARM_API_URL
+
+cmd=${1:-}
+[[ -n $cmd ]] || { usage >&2; exit 2; }
+shift
+
+case $cmd in
+status | discover | phones | apps | flows)
+  (($# == 0)) || { usage >&2; exit 2; }
+  exec "$CONTENTSWARM_BIN" "$cmd"
+  ;;
+phone | installed | current | ui)
+  (($# == 1)) || { usage >&2; exit 2; }
+  exec "$CONTENTSWARM_BIN" "$cmd" "$1"
+  ;;
+messages)
+  (($# == 2)) || { usage >&2; exit 2; }
+  exec "$CONTENTSWARM_BIN" messages "$1" "$2"
+  ;;
+launch | type | swipe | flow | runs | health)
+  (($# > 0)) || { usage >&2; exit 2; }
+  exec "$CONTENTSWARM_BIN" "$cmd" "$@"
+  ;;
+key)
+  (($# == 2)) || { usage >&2; exit 2; }
+  phone=$1
+  key=${2^^}
+  if [[ $key == ENTER || $key == DPAD_CENTER ]]; then
+    approve "press $key on phone $phone; this may activate the focused control"
+    detail="activating key approved"
+  else
+    detail="allowlisted key confirmed by kernel"
+  fi
+  output=$("$CONTENTSWARM_BIN" key "$phone" "$key" --confirm)
+  printf '%s\n' "$output"
+  audit key "$phone" "$detail"
+  ;;
+screenshot)
+  [[ $# == 1 || ( $# == 3 && $2 == -o ) ]] || { usage >&2; exit 2; }
+  phone=$1
+  mkdir -p "$RUN_DIR"
+  output=${3:-$RUN_DIR/phone-${phone}-$(date +%s).png}
+  resolved=$(realpath -m "$output")
+  vault=$(jq -r '.vault // empty' "${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/assistant/config.json" 2>/dev/null || true)
+  [[ $resolved == "$RUN_DIR"/* || ( -n $vault && $resolved == "$vault"/* ) ]] || {
+    echo '{"error":"screenshot output must be in the assistant runtime directory or Obsidian vault"}' >&2
+    exit 2
+  }
+  exec "$CONTENTSWARM_BIN" screenshot "$phone" -o "$resolved"
+  ;;
+tap)
+  (($# >= 3)) || { usage >&2; exit 2; }
+  phone=$1
+  filtered=()
+  for arg in "$@"; do [[ $arg == --confirm ]] || filtered+=("$arg"); done
+  if is_sensitive "${filtered[*]}"; then
+    approve "tap '${filtered[*]:1}' on phone $phone"
+    detail="sensitive selector approved"
+  else
+    detail="exact selector confirmed by kernel"
+  fi
+  output=$("$CONTENTSWARM_BIN" tap "${filtered[@]}" --confirm)
+  printf '%s\n' "$output"
+  audit tap "$phone" "$detail"
+  ;;
+compose)
+  (($# == 5 || $# == 7)) || { usage >&2; exit 2; }
+  phone=$1 channel=$2 recipient=$3 flag=$4 body_file=$5
+  [[ $flag == --body-file ]] || { usage >&2; exit 2; }
+  extra=()
+  if (($# == 7)); then
+    [[ $6 == --recipient-label && -n $7 ]] || { usage >&2; exit 2; }
+    extra=(--recipient-label "$7")
+  fi
+  require_message_target "$phone" "$channel" "$recipient"
+  require_file "$body_file"
+  mkdir -p "$RUN_DIR"
+  state=$(compose_state "$phone")
+  token_file=$(compose_token "$phone")
+  rm -f "$state" "$token_file"
+  output=$("$CONTENTSWARM_BIN" compose "$phone" "$channel" "$recipient" \
+    --body-file "$body_file" --token-file "$token_file" "${extra[@]}")
+  printf '%s\n' "$output"
+  jq -cn --arg channel "$channel" --arg recipient "$recipient" \
+    --arg bodyHash "$(sha256sum "$body_file" | cut -d' ' -f1)" \
+    '{channel:$channel,recipient:$recipient,bodyHash:$bodyHash}' >"$state"
+  chmod 600 "$state"
+  audit compose "$phone" "channel=$channel recipient=$(mask_recipient "$recipient")"
+  ;;
+send)
+  (($# == 5)) || { usage >&2; exit 2; }
+  phone=$1 channel=$2 recipient=$3 flag=$4 body_file=$5
+  [[ $flag == --expect-body-file ]] || { usage >&2; exit 2; }
+  require_message_target "$phone" "$channel" "$recipient"
+  require_file "$body_file"
+  state=$(compose_state "$phone")
+  token_file=$(compose_token "$phone")
+  [[ -f $state && -s $token_file ]] || { echo '{"error":"no matching prepared message; compose again"}' >&2; exit 2; }
+  body_hash=$(sha256sum "$body_file" | cut -d' ' -f1)
+  jq -e --arg channel "$channel" --arg recipient "$recipient" --arg bodyHash "$body_hash" \
+    '.channel == $channel and .recipient == $recipient and .bodyHash == $bodyHash' "$state" >/dev/null || {
+      echo '{"error":"prepared channel, recipient, or body changed; compose again"}' >&2
+      exit 2
+    }
+  body=$(cat "$body_file"; printf x)
+  body=${body%x}
+  approve "send $channel from phone $phone to $recipient: $body"
+  set +e
+  output=$("$CONTENTSWARM_BIN" send "$phone" "$channel" "$recipient" \
+    --expect-body-file "$body_file" --prepared-token-file "$token_file" --confirm)
+  status=$?
+  set -e
+  printf '%s\n' "$output"
+  if ((status == 0)) && jq -e '.verified == true' >/dev/null 2>&1 <<<"$output"; then
+    audit send "$phone" "channel=$channel recipient=$(mask_recipient "$recipient") verified=true"
+    rm -f "$state" "$token_file"
+    exit 0
+  fi
+  audit send-uncertain "$phone" "channel=$channel recipient=$(mask_recipient "$recipient") verified=false"
+  ((status == 0)) && status=1
+  exit "$status"
+  ;;
+run | learn)
+  (($# >= 2)) || { usage >&2; exit 2; }
+  if is_sensitive "$*"; then approve "$cmd on phone $1: ${*:2}"; fi
+  exec "$CONTENTSWARM_BIN" "$cmd" "$@"
+  ;;
+replay)
+  (($# >= 2)) || { usage >&2; exit 2; }
+  exec "$CONTENTSWARM_BIN" replay "$@"
+  ;;
+*) usage >&2; exit 2 ;;
+esac
