@@ -57,7 +57,8 @@ transport and approval commands with fakes.
 
 Login, payment, sending, posting, commenting, following, liking, subscribing,
 sharing, reposting, and deleting stop immediately before the commit action.
-The desktop menu defaults to denial after sixty seconds.
+A desktop notification must be clicked within sixty seconds to allow the
+concrete action once. A locked or unattended session therefore denies.
 
 Approval is bound to concrete data where possible. The phone kernel stores the
 prepared phone, channel, exact recipient, and SHA-256 body hash in the runtime
@@ -97,4 +98,3 @@ The Quickshell plugin only renders state and invokes the CLI. The Node daemon,
 ContentSwarm service, memory timer, browser processes, and model calls run
 outside Omarchy Shell, so their failures do not take down the bar or lock
 screen. Systemd restarts the long-running user services.
-

@@ -167,7 +167,8 @@ printf '%s' 'Approved body' |
 omarchy-assistant mail aigentis archive 42
 ```
 
-Send, reply, forward, and delete open the desktop Allow/Deny gate. Successful
+Send, reply, forward, and delete open a desktop notification that must be
+clicked within 60 seconds to allow the action once. Successful
 mutations append metadata to
 `~/.local/state/omarchy-assistant/mail-audit.jsonl`; bodies and credentials are
 not logged. Alias passwords remain in the GNOME keyring and Himalaya reads them
@@ -221,14 +222,14 @@ omarchy-assistant phone screenshot primary
 ```
 
 The wrapper supplies ContentSwarm's exact confirmation flag for every key
-event. `ENTER` and `DPAD_CENTER` also open the desktop Allow/Deny gate because
+event. `ENTER` and `DPAD_CENTER` also open the click-to-allow desktop gate because
 they can activate a focused Send, Post, Delete, Login, or payment control.
 
 ### SMS and WhatsApp
 
 Composition cannot send. The send command requires the same phone, channel,
 recipient, and body hash that were prepared, then displays the exact recipient
-and body in the desktop approval menu:
+and body in the desktop approval notification:
 
 ```bash
 umask 077
