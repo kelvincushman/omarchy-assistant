@@ -119,6 +119,28 @@ journalctl --user -u omarchy-contentswarm -n 100
 
 ## Troubleshooting
 
+### Live verification (8 September 2026)
+
+Verified on a Samsung SM-N975F over authorized USB ADB:
+
+- Discovery persisted the device and reported it connected.
+- Settings launch, semantic Search tap, text entry, independent UI-tree text
+  verification, clearing the test text, Back, and Home worked through the kernel.
+- Screenshot capture produced a 1080 × 2280 PNG.
+- A normal assistant request used the phone kernel and correctly reported the
+  connected device. The request completed successfully through the daemon.
+- Samsung Messages was reachable after choosing Messages in Android's
+  `Open with` dialog and selecting `Just once`.
+- LinkedIn and TikTok launched and exposed their own UI resource identifiers.
+- Instagram presented unfinished account setup; WhatsApp presented its welcome
+  and registration screen. Complete those steps on the handset before testing
+  account workflows.
+
+These checks verify navigation and sensing. They do not establish successful
+SMS/WhatsApp delivery or social posting. App launch success alone is not proof
+that the intended screen is ready: inspect the UI after launch and handle app
+choosers or setup screens before proceeding.
+
 | Result | Meaning and action |
 |---|---|
 | `adb: command not found` | Install `android-tools` in a visible terminal |
