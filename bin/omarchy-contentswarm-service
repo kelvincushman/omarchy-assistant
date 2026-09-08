@@ -1,0 +1,17 @@
+#!/bin/bash
+
+set -euo pipefail
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/omarchy-assistant"
+CONTENTSWARM_HOME="${CONTENTSWARM_HOME:-$DATA_HOME/ContentSwarm}"
+CONTENTSWARM_API_TOKEN=$(secret-tool lookup service contentswarm account api-token || true)
+[[ -n $CONTENTSWARM_API_TOKEN ]] || { echo "ContentSwarm token missing from keyring" >&2; exit 1; }
+
+export CONTENTSWARM_API_TOKEN
+export CONTENTSWARM_HOST="${CONTENTSWARM_HOST:-127.0.0.1}"
+export CONTENTSWARM_PORT="${CONTENTSWARM_PORT:-5055}"
+export CONTENTSWARM_PHONES_CONFIG="${CONTENTSWARM_PHONES_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/assistant/phones.json}"
+export CONTENTSWARM_FLOWS_DIR="${CONTENTSWARM_FLOWS_DIR:-$DATA_HOME/phone-flows}"
+
+cd "$CONTENTSWARM_HOME"
+exec "$CONTENTSWARM_HOME/.venv/bin/python" run_server.py
+
