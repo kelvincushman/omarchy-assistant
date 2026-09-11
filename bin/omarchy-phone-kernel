@@ -19,6 +19,7 @@ usage() {
 usage:
   omarchy-phone-kernel console
   omarchy-phone-kernel status|discover|phones|apps|flows|reviews
+  omarchy-phone-kernel social accounts|schedules|jobs|context|remember|tick [options]
   omarchy-phone-kernel review-add <draft.json>
   omarchy-phone-kernel review-action <id> claim|complete|uncertain --revision <n> [--evidence <text>]
   omarchy-phone-kernel phone|installed|current|ui <phone>
@@ -125,7 +126,7 @@ messages)
   (($# == 2)) || { usage >&2; exit 2; }
   exec "$CONTENTSWARM_BIN" messages "$1" "$2"
   ;;
-launch | type | swipe | flow | runs | health | review-add | review-action)
+launch | type | swipe | flow | runs | health | review-add | review-action | social)
   (($# > 0)) || { usage >&2; exit 2; }
   exec "$CONTENTSWARM_BIN" "$cmd" "$@"
   ;;

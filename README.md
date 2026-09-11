@@ -262,6 +262,14 @@ a masked recipient, without bodies or API tokens.
 
 ### Social media
 
+Use `omarchy-assistant phone social accounts` and
+`phone social context --account ID --query WORDS` for account-scoped voice,
+knowledge and prior posts/replies. `phone social remember --account ID --file FILE`
+adds a sourced observation. Accounts and recurring draft schedules are edited
+in the ContentSwarm console; its optional systemd user timer wakes once a minute.
+See [ContentSwarm's social guide](https://github.com/kelvincushman/ContentSwarm/blob/feat/social-manager/dashboard/SOCIAL.md)
+for setup, lease handling, calibration and current delivery limits.
+
 The ContentSwarm mobile console at `http://127.0.0.1:5055` provides tasks,
 phone preview, learned workflows, and an X/LinkedIn/Facebook reply review queue.
 Sign in with the separate ContentSwarm console token. Humanizer 3.0.0 is bundled for the
