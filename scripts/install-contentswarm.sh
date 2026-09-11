@@ -5,7 +5,7 @@ HERE=$(cd "$(dirname "$0")/.." && pwd)
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/omarchy-assistant"
 DEST="$DATA_HOME/ContentSwarm"
 SOURCE=${1:-}
-CONTENTSWARM_REF=${CONTENTSWARM_REF:-4506e875ee6bf6e709eb4a4942289cef27339072}
+CONTENTSWARM_REF=${CONTENTSWARM_REF:-a52b8ae7c664ced88051f8330b55653ca903918d}
 CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/assistant"
 
 command -v python >/dev/null || { echo "python is required" >&2; exit 1; }
