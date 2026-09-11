@@ -267,8 +267,14 @@ Use `omarchy-assistant phone social accounts` and
 knowledge and prior posts/replies. `phone social remember --account ID --file FILE`
 adds a sourced observation. Accounts and recurring draft schedules are edited
 in the ContentSwarm console; its optional systemd user timer wakes once a minute.
-See [ContentSwarm's social guide](https://github.com/kelvincushman/ContentSwarm/blob/feat/social-manager/dashboard/SOCIAL.md)
+See [ContentSwarm's social guide](https://github.com/kelvincushman/ContentSwarm/blob/main/dashboard/SOCIAL.md)
 for setup, lease handling, calibration and current delivery limits.
+
+Choose **Reply to a conversation** in Accounts & schedules to supply a source
+link, author and original message. Draft immediately or on an editable schedule.
+The worker retrieves the account soul and thread context, applies Humanizer and
+queues the response for review. Recurring reply schedules reuse that target;
+they do not automatically discover new replies.
 
 The ContentSwarm mobile console at `http://127.0.0.1:5055` provides tasks,
 phone preview, learned workflows, and an X/LinkedIn/Facebook reply review queue.
