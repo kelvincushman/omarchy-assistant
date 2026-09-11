@@ -56,7 +56,10 @@ and prior review outcomes. Append observed conversations with `social remember
 Include account_id and kind in every review. After claiming, keep lease_token
 private in CONTENTSWARM_LEASE_TOKEN and set CONTENTSWARM_REVIEW_ID for subsequent
 phone and result calls. Never substitute another account's context or lease.
-The owner edits accounts and schedules in the console. Automatic original-post
+The owner edits accounts and schedules in the console. Its Reply to a
+conversation option drafts now or on a schedule from the original message,
+author and source link, using scoped context and Humanizer. It does not collect
+new conversations or send automatically. Automatic original-post
 delivery is optional and requires calibrated app controls; replies remain in
 the external-agent review/deliver workflow.
 Never approve a draft yourself or invoke a notification action to simulate the
