@@ -5,7 +5,7 @@ HERE=$(cd "$(dirname "$0")/.." && pwd)
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/omarchy-assistant"
 DEST="$DATA_HOME/ContentSwarm"
 SOURCE=${1:-}
-CONTENTSWARM_REF=${CONTENTSWARM_REF:-8a88c0a0d8edffa99288fdf4374c44efa1c1ba41}
+CONTENTSWARM_REF=${CONTENTSWARM_REF:-6dfa67688697e2aa3c7e15ae54e88deef2efed19}
 CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/assistant"
 
 command -v python >/dev/null || { echo "python is required" >&2; exit 1; }
@@ -40,6 +40,12 @@ if ! secret-tool lookup service contentswarm account api-token >/dev/null; then
 fi
 
 ln -sf "$HERE/bin/omarchy-phone-kernel" "$HOME/.local/bin/omarchy-phone-kernel"
+if ! secret-tool lookup service contentswarm account console-token >/dev/null; then
+  python -c 'import secrets; print(secrets.token_urlsafe(32))' |
+    secret-tool store --label="ContentSwarm Console" service contentswarm account console-token
+fi
+mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+cp "$HERE/desktop/contentswarm.desktop" "${XDG_DATA_HOME:-$HOME/.local/share}/applications/contentswarm.desktop"
 chmod +x "$HERE/bin/omarchy-phone-kernel" "$HERE/bin/omarchy-contentswarm-service"
 cp "$HERE/systemd/omarchy-contentswarm.service" "$HOME/.config/systemd/user/omarchy-contentswarm.service"
 systemctl --user daemon-reload
