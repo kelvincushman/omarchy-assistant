@@ -18,6 +18,10 @@ approval, execution, verification metadata, and audit logs.
    open-ended one-off task.
 5. Inspect again after acting. Report the evidence and any uncertainty.
 
+Semantic taps can target a non-clickable label inside an enabled clickable
+parent. The kernel checks actual XML ancestry; do not guess parentage from
+overlapping bounds or cache parent_index between UI dumps.
+
 Observation calls may be retried. Never blindly retry a state-changing action.
 If a call times out after a tap, send, post, payment, or delete, inspect first.
 

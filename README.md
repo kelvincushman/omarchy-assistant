@@ -262,6 +262,10 @@ a masked recipient, without bodies or API tokens.
 
 ### Social media
 
+The phone kernel accepts exact labels inside clickable parent controls, using
+actual accessibility-tree ancestry. This covers X controls whose label itself
+is not clickable while retaining ambiguity and enabled-state checks.
+
 Use `omarchy-assistant phone social accounts` and
 `phone social context --account ID --query WORDS` for account-scoped voice,
 knowledge and prior posts/replies. `phone social remember --account ID --file FILE`
